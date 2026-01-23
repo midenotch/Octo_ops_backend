@@ -178,7 +178,7 @@ export const generateProjectTasks = async (req: Request, res: Response) => {
     
     const projectData = {
       name: project.name,
-      description: project.description,
+      description: project.description || '',
       milestones,
       teamMembers: project.team || []
     };
