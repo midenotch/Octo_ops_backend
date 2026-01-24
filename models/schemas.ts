@@ -26,6 +26,7 @@ const TaskSchema = new mongoose.Schema({
   assigneeName: String, // Denormalized for quick access
   deadline: Date,
   priority: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
+  milestone: String,
   dependencies: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Task' }],
   projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
   attachments: [String], // URLs or file paths

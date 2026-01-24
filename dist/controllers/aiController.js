@@ -142,6 +142,7 @@ const getTeamAssemblyRecommendations = (req, res) => __awaiter(void 0, void 0, v
 exports.getTeamAssemblyRecommendations = getTeamAssemblyRecommendations;
 // Generate initial tasks for project launch
 const generateProjectTasks = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b;
     try {
         const { projectId } = req.body;
         if (!projectId) {
@@ -164,12 +165,34 @@ const generateProjectTasks = (req, res) => __awaiter(void 0, void 0, void 0, fun
             milestones,
             teamMembers: project.team || []
         };
-        const tasks = yield (0, geminiService_1.generateInitialTasks)(projectData);
-        res.json(tasks);
+        const aiTasks = yield (0, geminiService_1.generateInitialTasks)(projectData);
+        // SAVE AND ASSIGN TASKS
+        const createdTasks = [];
+        for (const aiTask of aiTasks) {
+            // Try to match role (case insensitive)
+            const suggestedRole = (aiTask.suggestedRole || '').toLowerCase();
+            const team = project.team;
+            const assignee = team.find((m) => m.role && (m.role.toLowerCase().includes(suggestedRole) ||
+                suggestedRole.includes(m.role.toLowerCase())));
+            const task = yield schemas_1.Task.create({
+                projectId: project._id,
+                title: aiTask.title,
+                description: aiTask.description,
+                status: 'todo',
+                priority: aiTask.priority || 'medium',
+                milestone: aiTask.milestone,
+                assignee: (assignee === null || assignee === void 0 ? void 0 : assignee._id) || ((_a = team[0]) === null || _a === void 0 ? void 0 : _a._id), // Default to first member if no match
+                assigneeName: (assignee === null || assignee === void 0 ? void 0 : assignee.name) || ((_b = team[0]) === null || _b === void 0 ? void 0 : _b.name),
+                deadline: new Date(Date.now() + (aiTask.estimatedDays || 3) * 24 * 60 * 60 * 1000),
+                updatedAt: new Date()
+            });
+            createdTasks.push(task);
+        }
+        res.json(createdTasks);
     }
     catch (error) {
         console.error('Task generation error:', error);
-        res.status(500).json({ error: 'Failed to generate tasks' });
+        res.status(500).json({ error: 'Failed to generate and assign tasks' });
     }
 });
 exports.generateProjectTasks = generateProjectTasks;

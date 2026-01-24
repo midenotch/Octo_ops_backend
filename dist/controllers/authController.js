@@ -11,32 +11,40 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.signupOwner = exports.login = void 0;
 const schemas_1 = require("../models/schemas");
-// Login (Member/QA via Invite Code)
+// Unified Login (Email or Invite Code)
 const login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { inviteCode } = req.body;
-        // Simulating Invite Code validation
-        // In a real app, invite codes would be stored in the DB linked to a project/role
-        // For this MVP, we use the simple logic requested
-        let role = 'member';
-        if (inviteCode && inviteCode.toLowerCase().includes('qa')) {
-            role = 'qa';
+        const { identifier } = req.body; // Can be email or invite code
+        if (!identifier) {
+            return res.status(400).json({ error: 'Identifier (email or code) is required' });
         }
-        // Find or Create a Mock User for this session
-        // In a real flow, this would verify a token. Here we simulate a user found via invite.
-        let user = yield schemas_1.User.findOne({ email: `${role}@octoops.dev` });
+        // 1. Try finding by Email first (Owner Login)
+        let user = yield schemas_1.User.findOne({ email: identifier });
+        if (user) {
+            return res.json({ user });
+        }
+        // 2. Try identifying role/intent from code (for MVP/Demo)
+        const code = identifier.toLowerCase();
+        let role = 'member';
+        if (code.includes('qa'))
+            role = 'qa';
+        // 3. Fallback: Find our "demo" users by role if it's a specific token
+        user = yield schemas_1.User.findOne({ role, status: 'active' });
         if (!user) {
+            // Create user with a valid MongoDB ID automatically by calling .create without an ID
             user = yield schemas_1.User.create({
-                name: role === 'qa' ? 'QA Specialist' : 'Team Developer',
-                email: `${role}@octoops.dev`,
+                name: role === 'qa' ? 'Global Reviewer' : 'Main Developer',
+                email: `${role}-demo@octoops.dev`,
                 role: role,
-                avatar: role === 'qa' ? '👩‍🎨' : '👨‍💻'
+                avatar: role === 'qa' ? '👩‍🎨' : '👨‍💻',
+                status: 'active'
             });
         }
         res.json({ user });
     }
     catch (error) {
-        res.status(500).json({ error: 'Login failed' });
+        console.error('Login error:', error);
+        res.status(500).json({ error: 'Authentication failed' });
     }
 });
 exports.login = login;

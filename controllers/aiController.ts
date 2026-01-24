@@ -183,11 +183,37 @@ export const generateProjectTasks = async (req: Request, res: Response) => {
       teamMembers: project.team || []
     };
     
-    const tasks = await generateInitialTasks(projectData);
+    const aiTasks = await generateInitialTasks(projectData);
     
-    res.json(tasks);
+    // SAVE AND ASSIGN TASKS
+    const createdTasks: any[] = [];
+    for (const aiTask of aiTasks) {
+        // Try to match role (case insensitive)
+        const suggestedRole = (aiTask.suggestedRole || '').toLowerCase();
+        const team = project.team as any[];
+        const assignee = team.find((m: any) => 
+            m.role && (m.role.toLowerCase().includes(suggestedRole) || 
+            suggestedRole.includes(m.role.toLowerCase()))
+        );
+
+        const task = await Task.create({
+            projectId: project._id,
+            title: aiTask.title,
+            description: aiTask.description,
+            status: 'todo',
+            priority: aiTask.priority || 'medium',
+            milestone: aiTask.milestone,
+            assignee: assignee?._id || team[0]?._id, // Default to first member if no match
+            assigneeName: assignee?.name || team[0]?.name,
+            deadline: new Date(Date.now() + (aiTask.estimatedDays || 3) * 24 * 60 * 60 * 1000),
+            updatedAt: new Date()
+        });
+        createdTasks.push(task);
+    }
+    
+    res.json(createdTasks);
   } catch (error) {
     console.error('Task generation error:', error);
-    res.status(500).json({ error: 'Failed to generate tasks' });
+    res.status(500).json({ error: 'Failed to generate and assign tasks' });
   }
 };

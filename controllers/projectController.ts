@@ -66,12 +66,24 @@ export const getProject = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'No project found' });
     }
     
-    // Calculate progress based on tasks
+    // Calculate progress and milestones based on tasks
     const tasks = await Task.find({ projectId: project._id });
     const completedTasks = tasks.filter(t => t.status === 'done').length;
     const totalTasks = tasks.length;
     
+    // Calculate completed milestones
+    const uniqueMilestones = [...new Set(tasks.map(t => t.milestone).filter(Boolean))];
+    let milestonesDone = 0;
+    uniqueMilestones.forEach(m => {
+        const milestoneTasks = tasks.filter(t => t.milestone === m);
+        if (milestoneTasks.every(t => t.status === 'done')) {
+            milestonesDone++;
+        }
+    });
+
     project.progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    project.milestonesCompleted = milestonesDone;
+    project.totalMilestones = uniqueMilestones.length || project.totalMilestones;
     await project.save();
     
     res.json(project);
