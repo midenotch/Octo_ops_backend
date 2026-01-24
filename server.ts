@@ -13,6 +13,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'https://octo-ops.vercel.app',
   'https://octoops-phi.vercel.app',
+  'https://octo-ops-backend.onrender.com',
   'https://octoops-backend.onrender.com'
 ];
 
