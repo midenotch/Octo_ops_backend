@@ -11,7 +11,10 @@ dotenv_1.default.config();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
 // Middleware
-app.use((0, cors_1.default)());
+app.use((0, cors_1.default)({
+    origin: ['http://localhost:3000', 'https://octoops.vercel.app'], // Add your Vercel URL here if known
+    credentials: true
+}));
 app.use(express_1.default.json());
 // Database Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/octoops';

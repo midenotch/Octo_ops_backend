@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import fs from 'fs';
 
 // API Key Rotation - Support up to 5 keys
@@ -11,16 +11,13 @@ const API_KEYS = [
 ].filter(Boolean) as string[];
 
 let currentKeyIndex = 0;
-let failedAttempts = 0;
 const MAX_RETRIES = API_KEYS.length;
 
 function getNextAPIKey(): string {
   if (API_KEYS.length === 0) {
     throw new Error('No Gemini API keys configured');
   }
-  
-  const key = API_KEYS[currentKeyIndex];
-  return key;
+  return API_KEYS[currentKeyIndex];
 }
 
 function rotateAPIKey() {
@@ -28,42 +25,42 @@ function rotateAPIKey() {
   console.log(`🔄 Rotated to API key ${currentKeyIndex + 1}/${API_KEYS.length}`);
 }
 
-async function callGeminiWithRetry(prompt: string, imageData?: { data: string; mimeType: string }): Promise<string> {
+async function callGeminiWithRetry(prompt: string, imageData: { data: string; mimeType: string } | null = null): Promise<string> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const apiKey = getNextAPIKey();
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-
-      const parts: any[] = [prompt];
+      const client = new GoogleGenAI({ apiKey });
+      
+      const parts: any[] = [{ text: prompt }];
       if (imageData) {
-        parts.push({ inlineData: imageData });
+        parts.push({
+          inlineData: {
+            data: imageData.data,
+            mimeType: imageData.mimeType
+          }
+        });
       }
 
-      const result = await model.generateContent(parts);
-      const response = result.response.text();
-      
-      // Reset failed attempts on success
-      failedAttempts = 0;
-      return response;
+      const result = await client.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts }]
+      });
+
+      const responseText = result.text || '';
+      return responseText;
     } catch (error: any) {
       console.error(`API key ${currentKeyIndex + 1} failed:`, error.message);
       
-      // Check if it's a quota/limit error
       if (error.message?.includes('quota') || error.message?.includes('limit') || error.message?.includes('429')) {
         rotateAPIKey();
-        failedAttempts++;
-        
         if (attempt < MAX_RETRIES - 1) {
           console.log(`Retrying with next API key (attempt ${attempt + 2}/${MAX_RETRIES})...`);
           continue;
         }
       }
-      
       throw error;
     }
   }
-  
   throw new Error('All API keys exhausted');
 }
 
@@ -74,8 +71,6 @@ export async function extractProjectFromImage(imagePath: string) {
   try {
     const imageData = fs.readFileSync(imagePath);
     const base64Image = imageData.toString('base64');
-    
-    // Determine MIME type from file extension
     const ext = imagePath.split('.').pop()?.toLowerCase();
     const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
 
@@ -114,7 +109,6 @@ export async function extractProjectFromImage(imagePath: string) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
       return JSON.parse(jsonStr);
     }
-
     throw new Error('Failed to parse AI response');
   } catch (error) {
     console.error('Error extracting project from image:', error);
@@ -165,7 +159,6 @@ export async function generateTeamAssembly(projectData: {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
       return JSON.parse(jsonStr);
     }
-
     throw new Error('Failed to parse AI response');
   } catch (error) {
     console.error('Error generating team assembly:', error);
@@ -210,7 +203,6 @@ export async function generateInitialTasks(projectData: {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
       return JSON.parse(jsonStr);
     }
-
     return [];
   } catch (error) {
     console.error('Error generating initial tasks:', error);
@@ -245,7 +237,6 @@ export async function analyzeProjectHealth(projectData: any) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
       return JSON.parse(jsonStr);
     }
-
     throw new Error('Failed to parse AI response');
   } catch (error) {
     console.error('Error analyzing project health:', error);
@@ -281,7 +272,6 @@ export async function detectProjectRisks(projectData: any) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
       return JSON.parse(jsonStr);
     }
-
     return [];
   } catch (error) {
     console.error('Error detecting risks:', error);
@@ -316,7 +306,6 @@ export async function generateTaskRecommendations(projectData: any) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
       return JSON.parse(jsonStr);
     }
-
     return [];
   } catch (error) {
     console.error('Error generating task recommendations:', error);

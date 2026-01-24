@@ -18,7 +18,7 @@ exports.generateInitialTasks = generateInitialTasks;
 exports.analyzeProjectHealth = analyzeProjectHealth;
 exports.detectProjectRisks = detectProjectRisks;
 exports.generateTaskRecommendations = generateTaskRecommendations;
-const generative_ai_1 = require("@google/generative-ai");
+const genai_1 = require("@google/genai");
 const fs_1 = __importDefault(require("fs"));
 // API Key Rotation - Support up to 5 keys
 const API_KEYS = [
@@ -29,43 +29,44 @@ const API_KEYS = [
     process.env.GEMINI_API_KEY_5,
 ].filter(Boolean);
 let currentKeyIndex = 0;
-let failedAttempts = 0;
 const MAX_RETRIES = API_KEYS.length;
 function getNextAPIKey() {
     if (API_KEYS.length === 0) {
         throw new Error('No Gemini API keys configured');
     }
-    const key = API_KEYS[currentKeyIndex];
-    return key;
+    return API_KEYS[currentKeyIndex];
 }
 function rotateAPIKey() {
     currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
     console.log(`🔄 Rotated to API key ${currentKeyIndex + 1}/${API_KEYS.length}`);
 }
-function callGeminiWithRetry(prompt, imageData) {
-    return __awaiter(this, void 0, void 0, function* () {
+function callGeminiWithRetry(prompt_1) {
+    return __awaiter(this, arguments, void 0, function* (prompt, imageData = null) {
         var _a, _b, _c;
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 const apiKey = getNextAPIKey();
-                const genAI = new generative_ai_1.GoogleGenerativeAI(apiKey);
-                const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-                const parts = [prompt];
+                const client = new genai_1.GoogleGenAI({ apiKey });
+                const parts = [{ text: prompt }];
                 if (imageData) {
-                    parts.push({ inlineData: imageData });
+                    parts.push({
+                        inlineData: {
+                            data: imageData.data,
+                            mimeType: imageData.mimeType
+                        }
+                    });
                 }
-                const result = yield model.generateContent(parts);
-                const response = result.response.text();
-                // Reset failed attempts on success
-                failedAttempts = 0;
-                return response;
+                const result = yield client.models.generateContent({
+                    model: 'gemini-2.5-flash',
+                    contents: [{ role: 'user', parts }]
+                });
+                const responseText = result.text || '';
+                return responseText;
             }
             catch (error) {
                 console.error(`API key ${currentKeyIndex + 1} failed:`, error.message);
-                // Check if it's a quota/limit error
                 if (((_a = error.message) === null || _a === void 0 ? void 0 : _a.includes('quota')) || ((_b = error.message) === null || _b === void 0 ? void 0 : _b.includes('limit')) || ((_c = error.message) === null || _c === void 0 ? void 0 : _c.includes('429'))) {
                     rotateAPIKey();
-                    failedAttempts++;
                     if (attempt < MAX_RETRIES - 1) {
                         console.log(`Retrying with next API key (attempt ${attempt + 2}/${MAX_RETRIES})...`);
                         continue;
@@ -86,7 +87,6 @@ function extractProjectFromImage(imagePath) {
         try {
             const imageData = fs_1.default.readFileSync(imagePath);
             const base64Image = imageData.toString('base64');
-            // Determine MIME type from file extension
             const ext = (_a = imagePath.split('.').pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase();
             const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
             const prompt = `You are an AI assistant helping to extract project information from images. 
