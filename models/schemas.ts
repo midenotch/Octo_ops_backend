@@ -60,7 +60,7 @@ const TeamInviteSchema = new mongoose.Schema({
   role: { type: String, enum: ['member', 'qa'], required: true },
   status: { type: String, enum: ['pending', 'accepted', 'rejected', 'expired'], default: 'pending' },
   projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
-  invitedBy: { type: String, ref: 'User', required: true },
+  invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   inviteCode: { type: String, required: true, unique: true },
   expiresAt: Date,
   acceptedAt: Date,
