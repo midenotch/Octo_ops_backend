@@ -9,6 +9,7 @@ const UserSchema = new mongoose_1.default.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     role: { type: String, enum: ['owner', 'member', 'qa'], required: true },
+    title: String, // e.g. "Frontend Developer"
     avatar: String,
     status: { type: String, enum: ['active', 'invited', 'inactive'], default: 'active' },
     invitedBy: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'User' },
@@ -25,15 +26,20 @@ const TaskSchema = new mongoose_1.default.Schema({
         enum: ['todo', 'in-progress', 'in-review', 'done', 'blocked'],
         default: 'todo'
     },
-    assignee: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'User' },
+    assignee: { type: String, ref: 'User' },
     assigneeName: String, // Denormalized for quick access
+    assigneeEmail: String,
     deadline: Date,
     priority: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
     milestone: String,
-    dependencies: [{ type: mongoose_1.default.Schema.Types.ObjectId, ref: 'Task' }],
+    dependencies: [{ type: String, ref: 'Task' }],
     projectId: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'Project', required: true },
     attachments: [String], // URLs or file paths
-    createdBy: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'User' },
+    createdBy: { type: String, ref: 'User' },
+    reviewedBy: { type: String, ref: 'User' },
+    rejectionNote: String,
+    rejectionAttachments: [String], // URLs or file paths from QA rejection
+    timerStartedAt: Date,
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });
@@ -56,7 +62,9 @@ const RiskSchema = new mongoose_1.default.Schema({
 exports.Risk = mongoose_1.default.model('Risk', RiskSchema);
 const TeamInviteSchema = new mongoose_1.default.Schema({
     email: { type: String, required: true },
+    name: String, // Full name of the invited person
     role: { type: String, enum: ['member', 'qa'], required: true },
+    title: String, // Specific job title
     status: { type: String, enum: ['pending', 'accepted', 'rejected', 'expired'], default: 'pending' },
     projectId: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'Project', required: true },
     invitedBy: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -89,14 +97,14 @@ exports.Settings = mongoose_1.default.model('Settings', SettingsSchema);
 const ProjectSchema = new mongoose_1.default.Schema({
     name: { type: String, required: true },
     description: String,
-    ownerId: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'User', required: true },
-    team: [{ type: mongoose_1.default.Schema.Types.ObjectId, ref: 'User' }],
+    ownerId: { type: String, ref: 'User', required: true },
+    team: [{ type: String, ref: 'User' }],
     totalMilestones: { type: Number, default: 0 },
     milestonesCompleted: { type: Number, default: 0 },
     healthScore: { type: Number, default: 100, min: 0, max: 100 },
     progress: { type: Number, default: 0, min: 0, max: 100 },
     deadline: Date,
-    status: { type: String, enum: ['active', 'completed', 'archived'], default: 'active' },
+    status: { type: String, enum: ['active', 'completed', 'archived', 'launching'], default: 'active' },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });

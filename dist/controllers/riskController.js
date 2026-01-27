@@ -12,6 +12,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteRisk = exports.analyzeRisks = exports.resolveRisk = exports.updateRisk = exports.createRisk = exports.getRisks = void 0;
 const schemas_1 = require("../models/schemas");
 const geminiService_1 = require("../services/geminiService");
+const server_1 = require("../server");
+const projectUtils_1 = require("../utils/projectUtils");
 // Get all risks for a project
 const getRisks = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -35,6 +37,9 @@ const createRisk = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const populatedRisk = yield schemas_1.Risk.findById(risk._id)
             .populate('affectedTasks')
             .populate('resolvedBy', 'name email');
+        if (risk.projectId) {
+            yield (0, projectUtils_1.updateProjectStats)(risk.projectId.toString());
+        }
         res.status(201).json(populatedRisk);
     }
     catch (error) {
@@ -64,6 +69,30 @@ const resolveRisk = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     try {
         const { id } = req.params;
         const { userId } = req.body;
+        // Handle AI-detected risks which have custom string IDs
+        if (typeof id === 'string' && id.startsWith('risk-')) {
+            // Find the project to get the ID
+            const project = yield schemas_1.Project.findOne(); // MVP fallback
+            if (project) {
+                // Create a permanent record of this resolved AI risk
+                yield schemas_1.Risk.create({
+                    title: id.includes('overdue') ? 'Overdue Task Resolution' : 'AI Risk Mitigated',
+                    description: `Resolved AI-detected risk: ${id}`,
+                    severity: 'low',
+                    resolved: true,
+                    resolvedAt: new Date(),
+                    resolvedBy: userId,
+                    projectId: project._id,
+                    detectedBy: 'ai'
+                });
+                yield (0, projectUtils_1.updateProjectStats)(project._id.toString());
+            }
+            return res.json({
+                id,
+                resolved: true,
+                message: 'AI-detected risk resolved and persisted.'
+            });
+        }
         const risk = yield schemas_1.Risk.findByIdAndUpdate(id, {
             resolved: true,
             resolvedAt: new Date(),
@@ -71,6 +100,15 @@ const resolveRisk = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         }, { new: true }).populate('affectedTasks').populate('resolvedBy', 'name email');
         if (!risk) {
             return res.status(404).json({ error: 'Risk not found' });
+        }
+        // Emit WebSocket event for real-time risk update
+        if (risk.projectId) {
+            server_1.io.to(`project:${risk.projectId}`).emit('risk-resolved', {
+                projectId: risk.projectId,
+                riskId: risk._id,
+                risk: risk
+            });
+            yield (0, projectUtils_1.updateProjectStats)(risk.projectId.toString());
         }
         res.json(risk);
     }
@@ -90,6 +128,9 @@ const analyzeRisks = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             const risk = yield schemas_1.Risk.create(Object.assign(Object.assign({}, riskData), { projectId: projectData.projectId, detectedBy: 'ai' }));
             savedRisks.push(risk);
         }
+        if (projectData.projectId) {
+            yield (0, projectUtils_1.updateProjectStats)(projectData.projectId);
+        }
         res.json(savedRisks);
     }
     catch (error) {
@@ -104,6 +145,9 @@ const deleteRisk = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const risk = yield schemas_1.Risk.findByIdAndDelete(id);
         if (!risk) {
             return res.status(404).json({ error: 'Risk not found' });
+        }
+        if (risk.projectId) {
+            yield (0, projectUtils_1.updateProjectStats)(risk.projectId.toString());
         }
         res.json({ message: 'Risk deleted successfully' });
     }

@@ -187,14 +187,25 @@ export const generateProjectTasks = async (req: Request, res: Response) => {
     
     // SAVE AND ASSIGN TASKS
     const createdTasks: any[] = [];
+    
+    // Find Project Owner
+    const team = project.team as any[];
+    const owner = team.find((m: any) => m.role === 'owner' || m.role === 'lead') || 
+                  team.find((m: any) => m._id.toString() === project.ownerId?.toString()) ||
+                  team[0];
+
     for (const aiTask of aiTasks) {
         // Try to match role (case insensitive)
         const suggestedRole = (aiTask.suggestedRole || '').toLowerCase();
-        const team = project.team as any[];
-        const assignee = team.find((m: any) => 
+        let assignee = team.find((m: any) => 
             m.role && (m.role.toLowerCase().includes(suggestedRole) || 
             suggestedRole.includes(m.role.toLowerCase()))
         );
+
+        // Fallback to Owner if no role match
+        if (!assignee) {
+            assignee = owner;
+        }
 
         const task = await Task.create({
             projectId: project._id,
@@ -203,8 +214,9 @@ export const generateProjectTasks = async (req: Request, res: Response) => {
             status: 'todo',
             priority: aiTask.priority || 'medium',
             milestone: aiTask.milestone,
-            assignee: assignee?._id || team[0]?._id, // Default to first member if no match
-            assigneeName: assignee?.name || team[0]?.name,
+            assignee: assignee?._id,
+            assigneeName: assignee?.name,
+            assigneeEmail: assignee?.email,
             deadline: new Date(Date.now() + (aiTask.estimatedDays || 3) * 24 * 60 * 60 * 1000),
             updatedAt: new Date()
         });

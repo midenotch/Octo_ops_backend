@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
-import { Project, User, Task, Settings } from '../models/schemas';
+import { Project, User, Task, Settings, Risk } from '../models/schemas';
+import { io } from '../server';
 
 // Create Project (Onboarding)
 export const createProject = async (req: Request, res: Response) => {
@@ -35,7 +36,7 @@ export const createProject = async (req: Request, res: Response) => {
                         avatar: '👤'
                     });
                 }
-                project.team.push(invitee._id);
+                project.team.push(invitee._id.toString());
             }
         }
         await project.save();
@@ -63,7 +64,8 @@ export const getProject = async (req: Request, res: Response) => {
     }
     
     if (!project) {
-      return res.status(404).json({ error: 'No project found' });
+      res.status(404).json({ error: 'No project found' });
+      return;
     }
     
     // Calculate progress and milestones based on tasks
@@ -81,12 +83,85 @@ export const getProject = async (req: Request, res: Response) => {
         }
     });
 
-    project.progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-    project.milestonesCompleted = milestonesDone;
-    project.totalMilestones = uniqueMilestones.length || project.totalMilestones;
-    await project.save();
+    // AUTO-RISK AGENT LOGIC
+    const autoRisks: any[] = [];
+    const now = new Date();
     
-    res.json(project);
+    tasks.forEach(task => {
+        if (!task.deadline) return;
+
+        const deadline = new Date(task.deadline as any);
+        const diffMs = deadline.getTime() - now.getTime();
+        const diffHours = diffMs / (1000 * 60 * 60);
+
+        if (task.status !== 'done') {
+            if (diffMs < 0) {
+                autoRisks.push({
+                    id: `risk-overdue-${task._id}`,
+                    title: `Overdue Task: ${task.title}`,
+                    description: `Critical delay detected. Milestone integrity compromised.`,
+                    severity: 'critical',
+                    predictedImpact: 'Delayed project delivery',
+                    detectedBy: 'ai',
+                    resolved: false
+                });
+            } else if (diffHours < 24 && task.status === 'todo') {
+                autoRisks.push({
+                    id: `risk-deadline-${task._id}`,
+                    title: `Immediate Deadline: ${task.title}`,
+                    description: `Task in 'TODO' with less than 24h remaining.`,
+                    severity: 'high',
+                    predictedImpact: 'Increased pressure on QA window',
+                    detectedBy: 'ai',
+                    resolved: false
+                });
+            }
+        }
+
+        if (!task.assignee && task.priority === 'high') {
+            autoRisks.push({
+                id: `risk-unassigned-${task._id}`,
+                title: 'High Priority Unassignment',
+                description: `Critical mission unit '${task.title}' has no specialist assigned.`,
+                severity: 'high',
+                detectedBy: 'ai',
+                resolved: false
+            });
+        }
+    });
+
+    // REAL HEALTH SCORE ALGORITHM
+    let score = 100;
+    const activeTasks = tasks.filter(t => t.status !== 'done').length;
+    const overdueTasks = tasks.filter(t => t.status !== 'done' && t.deadline && new Date(t.deadline).getTime() < now.getTime()).length;
+    const blockedTasks = tasks.filter(t => t.status === 'blocked').length;
+    
+    // Impact of lack of progress (max -20)
+    if (totalTasks > 0) {
+        score -= (activeTasks / totalTasks) * 20;
+    }
+    
+    // Impact of delays
+    score -= (overdueTasks * 5);
+    score -= (blockedTasks * 3);
+    
+    // Impact of risks (from manual risks)
+    // autoRisks are calculated on the fly, but we should use DB risks too
+    const dbRisks = await Risk.find({ projectId: project._id, resolved: false });
+    dbRisks.forEach(r => {
+        if (r.severity === 'critical') score -= 10;
+        else if (r.severity === 'high') score -= 5;
+        else if (r.severity === 'medium') score -= 2;
+    });
+
+    // Derived (On-the-fly) stats for the response
+    const projectObj = (project.toObject ? project.toObject() : project) as any;
+    projectObj.progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    projectObj.milestonesCompleted = milestonesDone;
+    projectObj.autoRisks = autoRisks;
+    projectObj.healthScore = project.healthScore; // Use last persisted score
+    
+    res.json(projectObj);
   } catch (error) {
     console.error('Get project error:', error);
     res.status(500).json({ error: 'Failed to fetch project' });
@@ -99,7 +174,8 @@ export const updateProject = async (req: Request, res: Response) => {
     const { projectId, ...updates } = req.body;
     
     if (!projectId) {
-      return res.status(400).json({ error: 'Project ID is required' });
+      res.status(400).json({ error: 'Project ID is required' });
+      return;
     }
     
     const project = await Project.findByIdAndUpdate(
@@ -109,7 +185,8 @@ export const updateProject = async (req: Request, res: Response) => {
     ).populate('team');
     
     if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+      res.status(404).json({ error: 'Project not found' });
+      return;
     }
     
     res.json(project);
@@ -125,7 +202,8 @@ export const getUserProjects = async (req: Request, res: Response) => {
     const { userId } = req.query;
     
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      res.status(400).json({ error: 'User ID is required' });
+      return;
     }
     
     const projects = await Project.find({
@@ -139,5 +217,32 @@ export const getUserProjects = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Get user projects error:', error);
     res.status(500).json({ error: 'Failed to fetch projects' });
+  }
+};
+// Archive/Complete Project
+export const archiveProject = async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.body;
+    
+    if (!projectId) {
+      res.status(400).json({ error: 'Project ID is required' });
+      return;
+    }
+    
+    const project = await Project.findByIdAndUpdate(
+      projectId,
+      { status: 'archived', updatedAt: new Date() },
+      { new: true }
+    );
+    
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    
+    res.json(project);
+  } catch (error) {
+    console.error('Archive project error:', error);
+    res.status(500).json({ error: 'Failed to archive project' });
   }
 };

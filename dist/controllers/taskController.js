@@ -9,8 +9,10 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteTask = exports.approveTask = exports.submitTask = exports.updateTask = exports.createTask = exports.getTasks = void 0;
+exports.deleteTask = exports.rejectTask = exports.approveTask = exports.submitTask = exports.updateTask = exports.createTask = exports.getTasks = void 0;
 const schemas_1 = require("../models/schemas");
+const server_1 = require("../server");
+const projectUtils_1 = require("../utils/projectUtils");
 // Get All Tasks
 const getTasks = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -45,6 +47,9 @@ const createTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             .populate('assignee', 'name email avatar role')
             .populate('createdBy', 'name email')
             .populate('dependencies');
+        if (task.projectId) {
+            yield (0, projectUtils_1.updateProjectStats)(task.projectId.toString());
+        }
         res.status(201).json(populatedTask);
     }
     catch (error) {
@@ -65,12 +70,25 @@ const updateTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 updates.assigneeName = assignee.name;
             }
         }
+        const existingTask = yield schemas_1.Task.findById(id);
+        if (!existingTask) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+        // Set timer if status changes to in-progress
+        if (updates.status === 'in-progress' && existingTask.status !== 'in-progress' && !existingTask.timerStartedAt) {
+            updates.timerStartedAt = new Date();
+        }
         const task = yield schemas_1.Task.findByIdAndUpdate(id, Object.assign(Object.assign({}, updates), { updatedAt: new Date() }), { new: true })
             .populate('assignee', 'name email avatar role')
             .populate('createdBy', 'name email')
+            .populate('reviewedBy', 'name email')
             .populate('dependencies');
         if (!task) {
             return res.status(404).json({ error: 'Task not found' });
+        }
+        if (task.projectId) {
+            server_1.io.to(`project:${task.projectId}`).emit('tasks-updated', { projectId: task.projectId });
+            yield (0, projectUtils_1.updateProjectStats)(task.projectId.toString());
         }
         res.json(task);
     }
@@ -84,11 +102,23 @@ exports.updateTask = updateTask;
 const submitTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const task = yield schemas_1.Task.findByIdAndUpdate(id, { status: 'in-review', updatedAt: new Date() }, { new: true })
+        const { status, description, attachments } = req.body;
+        const task = yield schemas_1.Task.findByIdAndUpdate(id, {
+            status: status || 'in-review',
+            description,
+            attachments,
+            rejectionNote: null, // Clear on resubmission
+            rejectionAttachments: [], // Clear on resubmission
+            updatedAt: new Date()
+        }, { new: true })
             .populate('assignee', 'name email avatar role')
             .populate('createdBy', 'name email');
         if (!task) {
             return res.status(404).json({ error: 'Task not found' });
+        }
+        if (task.projectId) {
+            server_1.io.to(`project:${task.projectId}`).emit('tasks-updated', { projectId: task.projectId });
+            yield (0, projectUtils_1.updateProjectStats)(task.projectId.toString());
         }
         res.json(task);
     }
@@ -102,11 +132,23 @@ exports.submitTask = submitTask;
 const approveTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const task = yield schemas_1.Task.findByIdAndUpdate(id, { status: 'done', updatedAt: new Date() }, { new: true })
+        const { userId } = req.body;
+        const task = yield schemas_1.Task.findByIdAndUpdate(id, {
+            status: 'done',
+            reviewedBy: userId,
+            updatedAt: new Date()
+        }, { new: true })
             .populate('assignee', 'name email avatar role')
-            .populate('createdBy', 'name email');
+            .populate('createdBy', 'name email')
+            .populate('reviewedBy', 'name email');
         if (!task) {
             return res.status(404).json({ error: 'Task not found' });
+        }
+        if (task.projectId) {
+            server_1.io.to(`project:${task.projectId}`).emit('tasks-updated', { projectId: task.projectId });
+            yield schemas_1.Risk.updateMany({ affectedTasks: id, resolved: false }, { resolved: true, resolvedAt: new Date(), resolvedBy: userId });
+            server_1.io.to(`project:${task.projectId}`).emit('risks-updated', { projectId: task.projectId });
+            yield (0, projectUtils_1.updateProjectStats)(task.projectId.toString());
         }
         res.json(task);
     }
@@ -116,6 +158,34 @@ const approveTask = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.approveTask = approveTask;
+// Reject Task
+const rejectTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { id } = req.params;
+        const { rejectionNote, rejectionAttachments } = req.body;
+        const task = yield schemas_1.Task.findByIdAndUpdate(id, {
+            status: 'todo',
+            rejectionNote,
+            rejectionAttachments,
+            updatedAt: new Date()
+        }, { new: true })
+            .populate('assignee', 'name email avatar role')
+            .populate('createdBy', 'name email');
+        if (!task) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+        if (task.projectId) {
+            server_1.io.to(`project:${task.projectId}`).emit('tasks-updated', { projectId: task.projectId });
+            yield (0, projectUtils_1.updateProjectStats)(task.projectId.toString());
+        }
+        res.json(task);
+    }
+    catch (error) {
+        console.error('Reject task error:', error);
+        res.status(500).json({ error: 'Failed to reject task' });
+    }
+});
+exports.rejectTask = rejectTask;
 // Delete Task
 const deleteTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -123,6 +193,9 @@ const deleteTask = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const task = yield schemas_1.Task.findByIdAndDelete(id);
         if (!task) {
             return res.status(404).json({ error: 'Task not found' });
+        }
+        if (task.projectId) {
+            yield (0, projectUtils_1.updateProjectStats)(task.projectId.toString());
         }
         res.json({ message: 'Task deleted successfully' });
     }

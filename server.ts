@@ -2,11 +2,25 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import path from 'path';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Create HTTP server for Socket.IO
+const httpServer = createServer(app);
+
+// Health Check (Top Level to avoid middleware interference)
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+
+// Static Files
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Middleware
 const allowedOrigins = [
@@ -41,8 +55,44 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Handle Preflight OPTIONS requests globally
-app.options('*', cors());
+// Socket.IO Setup
+const io = new Server(httpServer, {
+  cors: {
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin) || origin?.includes('vercel.app')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST']
+  }
+});
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('✅ Client connected:', socket.id);
+
+  // Join project room
+  socket.on('join-project', (projectId: string) => {
+    socket.join(`project:${projectId}`);
+    console.log(`Socket ${socket.id} joined project:${projectId}`);
+  });
+
+  // Leave project room
+  socket.on('leave-project', (projectId: string) => {
+    socket.leave(`project:${projectId}`);
+    console.log(`Socket ${socket.id} left project:${projectId}`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('❌ Client disconnected:', socket.id);
+  });
+});
+
+// Make io available to routes
+export { io };
 
 // Diagnostic Logging for CORS (moved after options)
 app.use((req, res, next) => {
@@ -57,9 +107,19 @@ app.use((req, res, next) => {
 const MONGODB_URL = process.env.MONGODB_URI || '';
 
 // NOTE: Ensure you have a running MongoDB instance or valid URI in .env
-mongoose.connect(MONGODB_URL)
+mongoose.set('bufferCommands', false);
+mongoose.connect(MONGODB_URL, {
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+})
   .then(() => console.log('✅ MongoDB Connected'))
-  .catch((err) => console.error('❌ MongoDB Connection Error:', err));
+  .catch((err) => {
+    console.error('❌ MongoDB Connection Error:', err);
+    // Log more details for debugging buffering issues
+    if (err.name === 'MongooseServerSelectionError') {
+       console.error('Check if database IP is whitelisted and MONGODB_URI is correct.');
+    }
+  });
 
 // Routes
 import apiRoutes from './routes';
@@ -73,6 +133,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     message: process.env.NODE_ENV === 'development' ? err.message : undefined 
   });
 });
-app.listen(PORT, () => {
+
+httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🔌 WebSocket server ready`);
 });

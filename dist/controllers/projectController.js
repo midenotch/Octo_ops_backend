@@ -20,7 +20,7 @@ var __rest = (this && this.__rest) || function (s, e) {
     return t;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getUserProjects = exports.updateProject = exports.getProject = exports.createProject = void 0;
+exports.archiveProject = exports.getUserProjects = exports.updateProject = exports.getProject = exports.createProject = void 0;
 const schemas_1 = require("../models/schemas");
 // Create Project (Onboarding)
 const createProject = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -53,7 +53,7 @@ const createProject = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                             avatar: '👤'
                         });
                     }
-                    project.team.push(invitee._id);
+                    project.team.push(invitee._id.toString());
                 }
             }
             yield project.save();
@@ -80,14 +80,15 @@ const getProject = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             project = yield schemas_1.Project.findOne().populate('team').sort({ createdAt: -1 });
         }
         if (!project) {
-            return res.status(404).json({ error: 'No project found' });
+            res.status(404).json({ error: 'No project found' });
+            return;
         }
         // Calculate progress and milestones based on tasks
         const tasks = yield schemas_1.Task.find({ projectId: project._id });
         const completedTasks = tasks.filter(t => t.status === 'done').length;
         const totalTasks = tasks.length;
         // Calculate completed milestones
-        const uniqueMilestones = [...new Set(tasks.map(t => t.milestone).filter(Boolean))];
+        const uniqueMilestones = Array.from(new Set(tasks.map(t => t.milestone).filter(Boolean)));
         let milestonesDone = 0;
         uniqueMilestones.forEach(m => {
             const milestoneTasks = tasks.filter(t => t.milestone === m);
@@ -95,11 +96,80 @@ const getProject = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 milestonesDone++;
             }
         });
-        project.progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-        project.milestonesCompleted = milestonesDone;
-        project.totalMilestones = uniqueMilestones.length || project.totalMilestones;
-        yield project.save();
-        res.json(project);
+        // AUTO-RISK AGENT LOGIC
+        const autoRisks = [];
+        const now = new Date();
+        tasks.forEach(task => {
+            if (!task.deadline)
+                return;
+            const deadline = new Date(task.deadline);
+            const diffMs = deadline.getTime() - now.getTime();
+            const diffHours = diffMs / (1000 * 60 * 60);
+            if (task.status !== 'done') {
+                if (diffMs < 0) {
+                    autoRisks.push({
+                        id: `risk-overdue-${task._id}`,
+                        title: `Overdue Task: ${task.title}`,
+                        description: `Critical delay detected. Milestone integrity compromised.`,
+                        severity: 'critical',
+                        predictedImpact: 'Delayed project delivery',
+                        detectedBy: 'ai',
+                        resolved: false
+                    });
+                }
+                else if (diffHours < 24 && task.status === 'todo') {
+                    autoRisks.push({
+                        id: `risk-deadline-${task._id}`,
+                        title: `Immediate Deadline: ${task.title}`,
+                        description: `Task in 'TODO' with less than 24h remaining.`,
+                        severity: 'high',
+                        predictedImpact: 'Increased pressure on QA window',
+                        detectedBy: 'ai',
+                        resolved: false
+                    });
+                }
+            }
+            if (!task.assignee && task.priority === 'high') {
+                autoRisks.push({
+                    id: `risk-unassigned-${task._id}`,
+                    title: 'High Priority Unassignment',
+                    description: `Critical mission unit '${task.title}' has no specialist assigned.`,
+                    severity: 'high',
+                    detectedBy: 'ai',
+                    resolved: false
+                });
+            }
+        });
+        // REAL HEALTH SCORE ALGORITHM
+        let score = 100;
+        const activeTasks = tasks.filter(t => t.status !== 'done').length;
+        const overdueTasks = tasks.filter(t => t.status !== 'done' && t.deadline && new Date(t.deadline).getTime() < now.getTime()).length;
+        const blockedTasks = tasks.filter(t => t.status === 'blocked').length;
+        // Impact of lack of progress (max -20)
+        if (totalTasks > 0) {
+            score -= (activeTasks / totalTasks) * 20;
+        }
+        // Impact of delays
+        score -= (overdueTasks * 5);
+        score -= (blockedTasks * 3);
+        // Impact of risks (from manual risks)
+        // autoRisks are calculated on the fly, but we should use DB risks too
+        const dbRisks = yield schemas_1.Risk.find({ projectId: project._id, resolved: false });
+        dbRisks.forEach(r => {
+            if (r.severity === 'critical')
+                score -= 10;
+            else if (r.severity === 'high')
+                score -= 5;
+            else if (r.severity === 'medium')
+                score -= 2;
+        });
+        // Derived (On-the-fly) stats for the response
+        const projectObj = (project.toObject ? project.toObject() : project);
+        projectObj.progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+        projectObj.milestonesCompleted = milestonesDone;
+        projectObj.autoRisks = autoRisks;
+        projectObj.healthScore = project.healthScore; // Use last persisted score
+        res.json(projectObj);
     }
     catch (error) {
         console.error('Get project error:', error);
@@ -112,11 +182,13 @@ const updateProject = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     try {
         const _a = req.body, { projectId } = _a, updates = __rest(_a, ["projectId"]);
         if (!projectId) {
-            return res.status(400).json({ error: 'Project ID is required' });
+            res.status(400).json({ error: 'Project ID is required' });
+            return;
         }
         const project = yield schemas_1.Project.findByIdAndUpdate(projectId, Object.assign(Object.assign({}, updates), { updatedAt: new Date() }), { new: true }).populate('team');
         if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
+            res.status(404).json({ error: 'Project not found' });
+            return;
         }
         res.json(project);
     }
@@ -131,7 +203,8 @@ const getUserProjects = (req, res) => __awaiter(void 0, void 0, void 0, function
     try {
         const { userId } = req.query;
         if (!userId) {
-            return res.status(400).json({ error: 'User ID is required' });
+            res.status(400).json({ error: 'User ID is required' });
+            return;
         }
         const projects = yield schemas_1.Project.find({
             $or: [
@@ -147,3 +220,24 @@ const getUserProjects = (req, res) => __awaiter(void 0, void 0, void 0, function
     }
 });
 exports.getUserProjects = getUserProjects;
+// Archive/Complete Project
+const archiveProject = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { projectId } = req.body;
+        if (!projectId) {
+            res.status(400).json({ error: 'Project ID is required' });
+            return;
+        }
+        const project = yield schemas_1.Project.findByIdAndUpdate(projectId, { status: 'archived', updatedAt: new Date() }, { new: true });
+        if (!project) {
+            res.status(404).json({ error: 'Project not found' });
+            return;
+        }
+        res.json(project);
+    }
+    catch (error) {
+        console.error('Archive project error:', error);
+        res.status(500).json({ error: 'Failed to archive project' });
+    }
+});
+exports.archiveProject = archiveProject;

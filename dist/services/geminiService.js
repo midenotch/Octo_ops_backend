@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -18,8 +51,12 @@ exports.generateInitialTasks = generateInitialTasks;
 exports.analyzeProjectHealth = analyzeProjectHealth;
 exports.detectProjectRisks = detectProjectRisks;
 exports.generateTaskRecommendations = generateTaskRecommendations;
+exports.matchTasksToRole = matchTasksToRole;
 const genai_1 = require("@google/genai");
 const fs_1 = __importDefault(require("fs"));
+const dotenv = __importStar(require("dotenv"));
+// Load environment variables immediately
+dotenv.config();
 // API Key Rotation - Support up to 5 keys
 const API_KEYS = [
     process.env.GEMINI_API_KEY,
@@ -30,6 +67,7 @@ const API_KEYS = [
 ].filter(Boolean);
 let currentKeyIndex = 0;
 const MAX_RETRIES = API_KEYS.length;
+console.log(`[Gemini] Initialized with ${API_KEYS.length} available API keys.`);
 function getNextAPIKey() {
     if (API_KEYS.length === 0) {
         throw new Error('No Gemini API keys configured');
@@ -40,9 +78,10 @@ function rotateAPIKey() {
     currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
     console.log(`🔄 Rotated to API key ${currentKeyIndex + 1}/${API_KEYS.length}`);
 }
+console.log(`[Gemini] System initialized with ${API_KEYS.length} keys.`);
+API_KEYS.forEach((k, i) => console.log(`  - Key ${i + 1}: ${k ? 'LOADED (Length: ' + k.length + ')' : 'EMPTY'}`));
 function callGeminiWithRetry(prompt_1) {
     return __awaiter(this, arguments, void 0, function* (prompt, imageData = null) {
-        var _a, _b, _c;
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 const apiKey = getNextAPIKey();
@@ -56,21 +95,21 @@ function callGeminiWithRetry(prompt_1) {
                         }
                     });
                 }
-                const result = yield client.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: [{ role: 'user', parts }]
+                console.log(`[Gemini] Calling models.generateContent with model: gemini-1.5-flash`);
+                const response = yield client.models.generateContent({
+                    model: 'gemini-1.5-flash',
+                    contents: parts
                 });
-                const responseText = result.text || '';
+                const responseText = response.text || '';
                 return responseText;
             }
             catch (error) {
-                console.error(`API key ${currentKeyIndex + 1} failed:`, error.message);
-                if (((_a = error.message) === null || _a === void 0 ? void 0 : _a.includes('quota')) || ((_b = error.message) === null || _b === void 0 ? void 0 : _b.includes('limit')) || ((_c = error.message) === null || _c === void 0 ? void 0 : _c.includes('429'))) {
-                    rotateAPIKey();
-                    if (attempt < MAX_RETRIES - 1) {
-                        console.log(`Retrying with next API key (attempt ${attempt + 2}/${MAX_RETRIES})...`);
-                        continue;
-                    }
+                // Aggressively rotate for almost any error except maybe malformed request if detectable
+                // But usually, with these simple prompts, errors are quota or transient API issues.
+                rotateAPIKey();
+                if (attempt < MAX_RETRIES - 1) {
+                    console.log(`Retrying with next API key (attempt ${attempt + 2}/${MAX_RETRIES})...`);
+                    continue;
                 }
                 throw error;
             }
@@ -252,21 +291,29 @@ function analyzeProjectHealth(projectData) {
 function detectProjectRisks(projectData) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            const prompt = `Analyze this project and identify potential risks:
+            const prompt = `You are a HIGHLY CRITICAL Project Auditor AI. Analyze this project state and identify even subtle risks:
     
     Project: ${projectData.name}
     Tasks: ${JSON.stringify(projectData.tasks)}
     Team: ${projectData.teamSize} members
     Deadline: ${projectData.deadline}
     
-    Identify risks and return JSON array:
+    Identify risks in these categories:
+    1. TIMELINE: Any task near deadline or overdue.
+    2. RESOURCES: Unassigned high-priority tasks.
+    3. DEPENDENCIES: Complex chains that might block milestones.
+    4. VELOCITY: If many tasks are in 'todo' with a close deadline.
+    
+    BE AGRESSIVE. If anything looks slightly suspicious (e.g., a critical task with no description), report it as a risk.
+    
+    Return JSON array:
     [
       {
-        "title": "Risk title",
-        "description": "Detailed description",
+        "title": "Clear Risk Name",
+        "description": "Evidence-based reason for this risk",
         "severity": "low" | "medium" | "high" | "critical",
-        "predictedImpact": "Impact description",
-        "recommendations": ["recommendation1", "recommendation2"],
+        "predictedImpact": "What happens if NOT addressed",
+        "recommendations": ["Actionable step 1", "Actionable step 2"],
         "confidence": number (0-100)
       }
     ]`;
@@ -314,6 +361,62 @@ function generateTaskRecommendations(projectData) {
         }
         catch (error) {
             console.error('Error generating task recommendations:', error);
+            return [];
+        }
+    });
+}
+/**
+ * Match unassigned tasks to a user's role and title using AI
+ */
+function matchTasksToRole(userData, tasks) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            if (!tasks || tasks.length === 0)
+                return [];
+            const taskList = tasks.map(t => ({
+                id: t._id || t.id,
+                title: t.title,
+                description: t.description || ''
+            }));
+            const prompt = `You are a Project Management AI. Match the most suitable tasks to a new team member.
+    
+    User Persona:
+    Role: ${userData.role}
+    Job Title: ${userData.title}
+    
+    Unassigned Tasks:
+    ${JSON.stringify(taskList, null, 2)}
+    
+    INSTRUCTIONS:
+    1. Select EXACTLY up to 3 task IDs that best match this user's role and job title.
+    2. Prioritize tasks where the description or title implies skills relevant to "${userData.title}".
+    3. If "${userData.role}" is "qa", prioritize bug reports, testing tasks, and audits.
+    4. If no perfect matches exist, choose the most generic unassigned tasks.
+    
+    Return ONLY a raw JSON object with this structure (no markdown, no preamble):
+    {
+      "selectedTaskIds": ["id1", "id2", ...],
+      "reasoning": ["Task title: Why it fits", ...]
+    }`;
+            const response = yield callGeminiWithRetry(prompt);
+            console.log(`[matchTasksToRole] Raw AI Response: ${response.substring(0, 500)}...`);
+            const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    const jsonStr = jsonMatch[1] || jsonMatch[0];
+                    const result = JSON.parse(jsonStr);
+                    const ids = (result.selectedTaskIds || []).map((id) => id.toString());
+                    console.log(`[matchTasksToRole] Extracted IDs: ${JSON.stringify(ids)}`);
+                    return ids;
+                }
+                catch (parseErr) {
+                    console.error("[matchTasksToRole] JSON Parse Error:", parseErr);
+                }
+            }
+            return [];
+        }
+        catch (error) {
+            console.error('Error matching tasks to role:', error);
             return [];
         }
     });

@@ -142,7 +142,6 @@ const getTeamAssemblyRecommendations = (req, res) => __awaiter(void 0, void 0, v
 exports.getTeamAssemblyRecommendations = getTeamAssemblyRecommendations;
 // Generate initial tasks for project launch
 const generateProjectTasks = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b;
     try {
         const { projectId } = req.body;
         if (!projectId) {
@@ -168,12 +167,20 @@ const generateProjectTasks = (req, res) => __awaiter(void 0, void 0, void 0, fun
         const aiTasks = yield (0, geminiService_1.generateInitialTasks)(projectData);
         // SAVE AND ASSIGN TASKS
         const createdTasks = [];
+        // Find Project Owner
+        const team = project.team;
+        const owner = team.find((m) => m.role === 'owner' || m.role === 'lead') ||
+            team.find((m) => { var _a; return m._id.toString() === ((_a = project.ownerId) === null || _a === void 0 ? void 0 : _a.toString()); }) ||
+            team[0];
         for (const aiTask of aiTasks) {
             // Try to match role (case insensitive)
             const suggestedRole = (aiTask.suggestedRole || '').toLowerCase();
-            const team = project.team;
-            const assignee = team.find((m) => m.role && (m.role.toLowerCase().includes(suggestedRole) ||
+            let assignee = team.find((m) => m.role && (m.role.toLowerCase().includes(suggestedRole) ||
                 suggestedRole.includes(m.role.toLowerCase())));
+            // Fallback to Owner if no role match
+            if (!assignee) {
+                assignee = owner;
+            }
             const task = yield schemas_1.Task.create({
                 projectId: project._id,
                 title: aiTask.title,
@@ -181,8 +188,9 @@ const generateProjectTasks = (req, res) => __awaiter(void 0, void 0, void 0, fun
                 status: 'todo',
                 priority: aiTask.priority || 'medium',
                 milestone: aiTask.milestone,
-                assignee: (assignee === null || assignee === void 0 ? void 0 : assignee._id) || ((_a = team[0]) === null || _a === void 0 ? void 0 : _a._id), // Default to first member if no match
-                assigneeName: (assignee === null || assignee === void 0 ? void 0 : assignee.name) || ((_b = team[0]) === null || _b === void 0 ? void 0 : _b.name),
+                assignee: assignee === null || assignee === void 0 ? void 0 : assignee._id,
+                assigneeName: assignee === null || assignee === void 0 ? void 0 : assignee.name,
+                assigneeEmail: assignee === null || assignee === void 0 ? void 0 : assignee.email,
                 deadline: new Date(Date.now() + (aiTask.estimatedDays || 3) * 24 * 60 * 60 * 1000),
                 updatedAt: new Date()
             });

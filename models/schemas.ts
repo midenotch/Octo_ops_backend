@@ -4,6 +4,7 @@ const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   role: { type: String, enum: ['owner', 'member', 'qa'], required: true },
+  title: String, // e.g. "Frontend Developer"
   avatar: String,
   status: { type: String, enum: ['active', 'invited', 'inactive'], default: 'active' },
   invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -24,6 +25,7 @@ const TaskSchema = new mongoose.Schema({
   },
   assignee: { type: String, ref: 'User' },
   assigneeName: String, // Denormalized for quick access
+  assigneeEmail: String,
   deadline: Date,
   priority: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
   milestone: String,
@@ -31,6 +33,10 @@ const TaskSchema = new mongoose.Schema({
   projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
   attachments: [String], // URLs or file paths
   createdBy: { type: String, ref: 'User' },
+  reviewedBy: { type: String, ref: 'User' },
+  rejectionNote: String,
+  rejectionAttachments: [String], // URLs or file paths from QA rejection
+  timerStartedAt: Date,
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
@@ -57,7 +63,9 @@ export const Risk = mongoose.model('Risk', RiskSchema);
 
 const TeamInviteSchema = new mongoose.Schema({
   email: { type: String, required: true },
+  name: String, // Full name of the invited person
   role: { type: String, enum: ['member', 'qa'], required: true },
+  title: String, // Specific job title
   status: { type: String, enum: ['pending', 'accepted', 'rejected', 'expired'], default: 'pending' },
   projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
   invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
-import { Task, Project, User } from '../models/schemas';
+import { Task, Project, User, Risk } from '../models/schemas';
+import { io } from '../server';
+import { updateProjectStats } from '../utils/projectUtils';
 
 // Get All Tasks
 export const getTasks = async (req: Request, res: Response) => {
@@ -43,6 +45,10 @@ export const createTask = async (req: Request, res: Response) => {
       .populate('createdBy', 'name email')
       .populate('dependencies');
     
+    if (task.projectId) {
+        await updateProjectStats(task.projectId.toString());
+    }
+    
     res.status(201).json(populatedTask);
   } catch (error) {
     console.error('Create task error:', error);
@@ -64,6 +70,16 @@ export const updateTask = async (req: Request, res: Response) => {
       }
     }
     
+    const existingTask = await Task.findById(id);
+    if (!existingTask) {
+        return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Set timer if status changes to in-progress
+    if (updates.status === 'in-progress' && existingTask.status !== 'in-progress' && !existingTask.timerStartedAt) {
+        updates.timerStartedAt = new Date();
+    }
+
     const task = await Task.findByIdAndUpdate(
       id,
       { ...updates, updatedAt: new Date() },
@@ -71,10 +87,16 @@ export const updateTask = async (req: Request, res: Response) => {
     )
       .populate('assignee', 'name email avatar role')
       .populate('createdBy', 'name email')
+      .populate('reviewedBy', 'name email')
       .populate('dependencies');
     
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    if (task.projectId) {
+      io.to(`project:${task.projectId}`).emit('tasks-updated', { projectId: task.projectId });
+      await updateProjectStats(task.projectId.toString());
     }
     
     res.json(task);
@@ -88,10 +110,18 @@ export const updateTask = async (req: Request, res: Response) => {
 export const submitTask = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const { status, description, attachments } = req.body;
     
     const task = await Task.findByIdAndUpdate(
       id,
-      { status: 'in-review', updatedAt: new Date() },
+      { 
+        status: status || 'in-review', 
+        description,
+        attachments,
+        rejectionNote: null, // Clear on resubmission
+        rejectionAttachments: [], // Clear on resubmission
+        updatedAt: new Date() 
+      },
       { new: true }
     )
       .populate('assignee', 'name email avatar role')
@@ -99,6 +129,11 @@ export const submitTask = async (req: Request, res: Response) => {
     
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    if (task.projectId) {
+      io.to(`project:${task.projectId}`).emit('tasks-updated', { projectId: task.projectId });
+      await updateProjectStats(task.projectId.toString());
     }
     
     res.json(task);
@@ -112,10 +147,57 @@ export const submitTask = async (req: Request, res: Response) => {
 export const approveTask = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const { userId } = req.body;
     
     const task = await Task.findByIdAndUpdate(
       id,
-      { status: 'done', updatedAt: new Date() },
+      { 
+        status: 'done', 
+        reviewedBy: userId,
+        updatedAt: new Date() 
+      },
+      { new: true }
+    )
+      .populate('assignee', 'name email avatar role')
+      .populate('createdBy', 'name email')
+      .populate('reviewedBy', 'name email');
+    
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    if (task.projectId) {
+      io.to(`project:${task.projectId}`).emit('tasks-updated', { projectId: task.projectId });
+      
+      await Risk.updateMany(
+        { affectedTasks: id, resolved: false },
+        { resolved: true, resolvedAt: new Date(), resolvedBy: userId }
+      );
+      io.to(`project:${task.projectId}`).emit('risks-updated', { projectId: task.projectId });
+      await updateProjectStats(task.projectId.toString());
+    }
+    
+    res.json(task);
+  } catch (error) {
+    console.error('Approve task error:', error);
+    res.status(500).json({ error: 'Failed to approve task' });
+  }
+};
+
+// Reject Task
+export const rejectTask = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rejectionNote, rejectionAttachments } = req.body;
+    
+    const task = await Task.findByIdAndUpdate(
+      id,
+      { 
+        status: 'todo', 
+        rejectionNote,
+        rejectionAttachments,
+        updatedAt: new Date() 
+      },
       { new: true }
     )
       .populate('assignee', 'name email avatar role')
@@ -125,10 +207,15 @@ export const approveTask = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     
+    if (task.projectId) {
+      io.to(`project:${task.projectId}`).emit('tasks-updated', { projectId: task.projectId });
+      await updateProjectStats(task.projectId.toString());
+    }
+    
     res.json(task);
   } catch (error) {
-    console.error('Approve task error:', error);
-    res.status(500).json({ error: 'Failed to approve task' });
+    console.error('Reject task error:', error);
+    res.status(500).json({ error: 'Failed to reject task' });
   }
 };
 
@@ -141,6 +228,10 @@ export const deleteTask = async (req: Request, res: Response) => {
     
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    if (task.projectId) {
+        await updateProjectStats(task.projectId.toString());
     }
     
     res.json({ message: 'Task deleted successfully' });

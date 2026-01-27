@@ -8,6 +8,7 @@ const authController_1 = require("../controllers/authController");
 const projectController_1 = require("../controllers/projectController");
 const taskController_1 = require("../controllers/taskController");
 const riskController_1 = require("../controllers/riskController");
+const uploadController_1 = require("../controllers/uploadController");
 const teamController_1 = require("../controllers/teamController");
 const settingsController_1 = require("../controllers/settingsController");
 const aiController_1 = require("../controllers/aiController");
@@ -25,12 +26,14 @@ router.post('/projects', projectController_1.createProject);
 router.get('/projects', projectController_1.getProject);
 router.put('/projects', projectController_1.updateProject);
 router.get('/projects/user', projectController_1.getUserProjects);
+router.post('/projects/archive', projectController_1.archiveProject);
 // Task Routes
 router.get('/tasks', taskController_1.getTasks);
 router.post('/tasks', taskController_1.createTask);
 router.put('/tasks/:id', taskController_1.updateTask);
 router.delete('/tasks/:id', taskController_1.deleteTask);
 router.post('/tasks/:id/submit', taskController_1.submitTask);
+router.post('/tasks/:id/reject', taskController_1.rejectTask);
 router.post('/tasks/:id/approve', taskController_1.approveTask);
 // Risk Routes
 router.get('/risks', riskController_1.getRisks);
@@ -58,4 +61,6 @@ router.post('/ai/health-score', aiController_1.calculateHealthScore);
 router.get('/ai/task-recommendations', aiController_1.getTaskRecommendations);
 router.post('/ai/team-assembly', aiController_1.getTeamAssemblyRecommendations);
 router.post('/ai/generate-tasks', aiController_1.generateProjectTasks);
+// Generic Upload Route
+router.post('/upload', upload_1.upload.single('file'), uploadController_1.uploadFile);
 exports.default = router;
