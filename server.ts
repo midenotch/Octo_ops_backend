@@ -42,7 +42,7 @@ app.use(cors({
   origin: (origin, callback) => {
     // If no origin (like mobile apps or curl) or origin is in allowed list
     if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app')) {
-      callback(null, true);
+      callback(null, origin || true);
     } else {
       console.warn(`CORS Blocked: Origin ${origin} not in allowed list`);
       callback(new Error('Not allowed by CORS'));
@@ -60,7 +60,7 @@ const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
       if (!origin || allowedOrigins.includes(origin) || origin?.includes('vercel.app')) {
-        callback(null, true);
+        callback(null, origin || true);
       } else {
         callback(new Error('Not allowed by CORS'));
       }
