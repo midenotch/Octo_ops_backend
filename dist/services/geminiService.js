@@ -95,9 +95,9 @@ function callGeminiWithRetry(prompt_1) {
                         }
                     });
                 }
-                console.log(`[Gemini] Calling models.generateContent with model: gemini-1.5-flash`);
+                console.log(`[Gemini] Calling models.generateContent with model: gemini-2.5-flash`);
                 const response = yield client.models.generateContent({
-                    model: 'gemini-1.5-flash',
+                    model: 'gemini-2.5-flash',
                     contents: parts
                 });
                 const responseText = response.text || '';

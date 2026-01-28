@@ -32,15 +32,12 @@ const createProject = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             totalMilestones: totalMilestones || 0,
             deadline,
             ownerId,
-            team: [ownerId] // Owner is first member
+            team: [ownerId]
         });
-        // Create default settings for project
         yield schemas_1.Settings.create({ projectId: project._id });
-        // Process Invites (Create placeholder users)
         if (invites && invites.length > 0) {
             for (const invite of invites) {
                 if (invite.email) {
-                    // Check if user exists, else create placeholder
                     let invitee = yield schemas_1.User.findOne({ email: invite.email });
                     if (!invitee) {
                         invitee = yield schemas_1.User.create({
@@ -152,8 +149,6 @@ const getProject = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         // Impact of delays
         score -= (overdueTasks * 5);
         score -= (blockedTasks * 3);
-        // Impact of risks (from manual risks)
-        // autoRisks are calculated on the fly, but we should use DB risks too
         const dbRisks = yield schemas_1.Risk.find({ projectId: project._id, resolved: false });
         dbRisks.forEach(r => {
             if (r.severity === 'critical')
@@ -168,7 +163,7 @@ const getProject = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         projectObj.progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
         projectObj.milestonesCompleted = milestonesDone;
         projectObj.autoRisks = autoRisks;
-        projectObj.healthScore = project.healthScore; // Use last persisted score
+        projectObj.healthScore = project.healthScore;
         res.json(projectObj);
     }
     catch (error) {

@@ -32,14 +32,12 @@ const login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const invite = yield TeamInvite.findOne({ inviteCode: identifier });
         if (invite) {
             console.log(`[Login] Match found! Invite for: ${invite.email}, Current Status: ${invite.status}`);
-            // If invite exists, check if user doc was previously created but deleted
             user = yield schemas_1.User.findOne({ email: invite.email });
             if (user) {
                 console.log(`[Login] User doc for ${invite.email} still exists. Logging in.`);
                 return res.json({ user });
             }
             else {
-                // User doc is missing (likely removed)
                 if (invite.status !== 'pending') {
                     console.log(`[Login] DENIED: Code "${identifier}" status is "${invite.status}" (NOT PENDING) and User doc is missing.`);
                     return res.status(401).json({ error: 'This invitation has already been accepted or is no longer valid. Please login with your email.' });
@@ -51,7 +49,7 @@ const login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                         email: invite.email,
                         role: invite.role,
                         status: 'invited',
-                        _id: 'pending_' + invite._id // Temporary ID for onboarding
+                        _id: 'pending_' + invite._id
                     },
                     requiresOnboarding: true,
                     inviteCode: identifier

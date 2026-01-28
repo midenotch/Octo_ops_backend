@@ -25,6 +25,7 @@ app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 
 // Middleware
 const allowedOrigins = [
     'http://localhost:3000',
+    'http://localhost:3001',
     'https://octo-ops.vercel.app',
     'https://octoops-phi.vercel.app',
     'https://octo-ops-backend.onrender.com',
@@ -40,7 +41,7 @@ app.use((0, cors_1.default)({
     origin: (origin, callback) => {
         // If no origin (like mobile apps or curl) or origin is in allowed list
         if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app')) {
-            callback(null, true);
+            callback(null, origin || true);
         }
         else {
             console.warn(`CORS Blocked: Origin ${origin} not in allowed list`);
@@ -58,7 +59,7 @@ const io = new socket_io_1.Server(httpServer, {
     cors: {
         origin: (origin, callback) => {
             if (!origin || allowedOrigins.includes(origin) || (origin === null || origin === void 0 ? void 0 : origin.includes('vercel.app'))) {
-                callback(null, true);
+                callback(null, origin || true);
             }
             else {
                 callback(new Error('Not allowed by CORS'));

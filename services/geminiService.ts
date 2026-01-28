@@ -50,9 +50,9 @@ async function callGeminiWithRetry(prompt: string, imageData: { data: string; mi
         });
       }
 
-      console.log(`[Gemini] Calling models.generateContent with model: gemini-1.5-flash`);
+      console.log(`[Gemini] Calling models.generateContent with model: gemini-2.5-flash`);
       const response = await client.models.generateContent({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
         contents: parts
       });
 

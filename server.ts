@@ -25,6 +25,7 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 // Middleware
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
   'https://octo-ops.vercel.app',
   'https://octoops-phi.vercel.app',
   'https://octo-ops-backend.onrender.com',
