@@ -128,7 +128,12 @@ function extractProjectFromImage(imagePath) {
             const base64Image = imageData.toString('base64');
             const ext = (_a = imagePath.split('.').pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase();
             const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+            // Get current date for context
+            const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
             const prompt = `You are an AI assistant helping to extract project information from images. 
+    
+    IMPORTANT: Today's date is ${currentDate}. When extracting or suggesting deadlines, ensure all dates are in the year 2026 or later. Use today's date as the reference point for any timeline calculations.
+    
     Analyze this image and extract the following information if available:
     
     1. Project Name
@@ -144,7 +149,7 @@ function extractProjectFromImage(imagePath) {
       "name": "Project Name",
       "description": "Detailed description",
       "features": ["feature1", "feature2"],
-      "deadline": "YYYY-MM-DD or null",
+      "deadline": "YYYY-MM-DD (must be 2026 or later) or null",
       "milestones": ["milestone1", "milestone2"],
       "teamSize": number or null,
       "extractedText": "All visible text from the image",
@@ -176,7 +181,12 @@ function generateTeamAssembly(projectData) {
     return __awaiter(this, void 0, void 0, function* () {
         var _a;
         try {
+            // Get current date for context
+            const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+            const currentYear = new Date().getFullYear();
             const prompt = `Based on this project information, recommend an ideal team structure:
+    
+    IMPORTANT: Today's date is ${currentDate} (year ${currentYear}). When suggesting deadlines and milestones, ensure all dates are calculated from today and are in the year ${currentYear} or later. DO NOT use dates from 2023, 2024, or 2025.
     
     Project: ${projectData.name}
     Description: ${projectData.description}
@@ -185,7 +195,7 @@ function generateTeamAssembly(projectData) {
     
     Provide recommendations in JSON format:
     {
-      "recommendedDeadline": "YYYY-MM-DD (realistic deadline based on scope)",
+      "recommendedDeadline": "YYYY-MM-DD (realistic deadline based on scope, must be ${currentYear} or later)",
       "estimatedDuration": "X weeks/months",
       "keyMilestones": [
         { "name": "Milestone 1", "description": "What to achieve", "estimatedWeeks": 2 },
