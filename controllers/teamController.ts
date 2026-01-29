@@ -11,7 +11,6 @@ if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 }
 
-// Get all team members for a project
 export const getTeamMembers: RequestHandler = async (req, res) => {
   try {
     const { projectId } = req.query;
@@ -28,7 +27,6 @@ export const getTeamMembers: RequestHandler = async (req, res) => {
       return;
     }
     
-    // Get pending invites
     const pendingInvites = await TeamInvite.find({
       projectId,
       status: 'pending'
@@ -43,16 +41,13 @@ export const getTeamMembers: RequestHandler = async (req, res) => {
   }
 };
 
-// Invite a team member
 export const inviteTeamMember: RequestHandler = async (req, res) => {
   try {
     const { email, role, projectId, invitedBy, name } = req.body;
     
-    // Check if user already exists
     let user = await User.findOne({ email });
     
     if (user) {
-      // Check if already in project
       const project = await Project.findById(projectId);
       if (project?.team.includes(user._id.toString())) {
         res.status(400).json({ error: 'User is already a team member' });
@@ -60,17 +55,14 @@ export const inviteTeamMember: RequestHandler = async (req, res) => {
       }
     }
     
-    // Generate unique invite code
     const inviteCode = crypto.randomBytes(16).toString('hex');
     
-    // Map specific role to internal permission role + descriptive title
     const permissionRole = role.toLowerCase().includes('qa') || role.toLowerCase().includes('reviewer') ? 'qa' : 'member';
     const jobTitle = role;
 
-    // Create invite
     const invite = await TeamInvite.create({
       email,
-      name, // Save the full name
+      name, 
       role: permissionRole,
       title: jobTitle,
       projectId,
@@ -82,10 +74,10 @@ export const inviteTeamMember: RequestHandler = async (req, res) => {
     const populatedInvite = await TeamInvite.findById(invite._id)
       .populate('invitedBy', 'name email');
     
-    // Send Email via SendGrid (optional - don't fail invite if email fails)
     if (process.env.SENDGRID_API_KEY) {
         try {
-            const inviteLink = `http://localhost:3000/login?mode=member&code=${inviteCode}` || `https://octo-ops.vercel.app/login?mode=member&code=${inviteCode}`;
+            const FRONTEND_URL = process.env.FRONTEND_URL || 'https://octo-ops.vercel.app';
+            const inviteLink = `${FRONTEND_URL}/login?mode=member&code=${inviteCode}`;
             const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@octoops.ai';
             const msg = {
               to: email,
@@ -105,7 +97,6 @@ export const inviteTeamMember: RequestHandler = async (req, res) => {
             console.log(`✓ Invite email sent to ${email} from ${fromEmail}`);
         } catch (emailError: any) {
             console.warn(`⚠ Email send failed (invite still created): ${emailError.message}`);
-            // Don't throw - invite was created successfully, email is optional
         }
     } else {
         console.warn('⚠ SENDGRID_API_KEY not configured. Invite created but email not sent.');
@@ -118,7 +109,6 @@ export const inviteTeamMember: RequestHandler = async (req, res) => {
   }
 };
 
-// Accept team invitation
 export const acceptInvite: RequestHandler = async (req, res) => {
   try {
     const { inviteCode, userName } = req.body;
@@ -128,19 +118,16 @@ export const acceptInvite: RequestHandler = async (req, res) => {
 
     if (inviteCode === 'RE-SYNC') {
         console.log(`[ReSync] Manual trigger received for: ${userName}`);
-        // In RE-SYNC mode, userName contains the email
         user = await User.findOne({ email: userName });
         if (!user) {
             return res.status(404).json({ error: 'User not found for re-sync' });
         }
         
-        // Find the project this user belongs to
         const project = await Project.findOne({ team: user._id });
         if (!project) {
             return res.status(404).json({ error: 'Project context not found for re-sync' });
         }
 
-        // Create a mock invite object for the logic below to reuse
         invite = {
             projectId: project._id,
             role: user.role,
@@ -156,7 +143,6 @@ export const acceptInvite: RequestHandler = async (req, res) => {
           return;
         }
         
-        // Check if expired
         if (invite.expiresAt && invite.expiresAt < new Date()) {
           invite.status = 'expired';
           await invite.save();
@@ -164,7 +150,6 @@ export const acceptInvite: RequestHandler = async (req, res) => {
           return;
         }
         
-        // Create or update user
         user = await User.findOne({ email: invite.email });
         
         if (!user) {
@@ -181,18 +166,15 @@ export const acceptInvite: RequestHandler = async (req, res) => {
           });
         }
         
-        // Add user to project team
         await Project.findByIdAndUpdate(invite.projectId, {
           $addToSet: { team: user._id }
         });
         
-        // Update invite status
         invite.status = 'accepted';
         invite.acceptedAt = new Date();
         await invite.save();
     }
     
-    // Auto-assign tasks using allocated service
     let assignedTasks: any[] = [];
     let projectTeamCount = 0;
     
@@ -201,7 +183,6 @@ export const acceptInvite: RequestHandler = async (req, res) => {
         if (project) {
             projectTeamCount = project.team.length;
             
-            // Import dynamically or ensure it's imported at top, but for now assuming top import
             console.log(`[acceptInvite] Calling assignInitialTasksToMember for ${user.email}`);
             
             const result = await assignInitialTasksToMember({
@@ -216,7 +197,6 @@ export const acceptInvite: RequestHandler = async (req, res) => {
             
             assignedTasks = result.assignedTasks;
 
-            // Socket updates
             io.to(`project:${invite.projectId}`).emit('team-updated', {
               projectId: invite.projectId,
               newMember: user,
@@ -246,7 +226,6 @@ export const acceptInvite: RequestHandler = async (req, res) => {
   }
 };
 
-// Remove team member
 export const removeTeamMember: RequestHandler = async (req, res) => {
   try {
     const { userId, projectId } = req.body;
@@ -259,7 +238,6 @@ export const removeTeamMember: RequestHandler = async (req, res) => {
     }
 
     if (userToRemove?.role === 'qa') {
-      // Check if there are other QAs in the project
       const projectData = await Project.findById(projectId);
       const otherQAs = await User.countDocuments({ 
         _id: { $in: projectData?.team || [], $ne: userId as any }, 
@@ -272,7 +250,6 @@ export const removeTeamMember: RequestHandler = async (req, res) => {
       }
     }
     
-    // Remove user record to revoke login access
     await User.findByIdAndDelete(userId);
     
     const project = await Project.findByIdAndUpdate(
@@ -292,12 +269,10 @@ export const removeTeamMember: RequestHandler = async (req, res) => {
   }
 };
 
-// Update member role
 export const updateMemberRole: RequestHandler = async (req, res) => {
   try {
     const { userId, role } = req.body;
     
-    // Protection: Owner role is permanent
     const userToUpdate = await User.findById(userId);
     if (!userToUpdate) {
         res.status(404).json({ error: 'User not found' });
@@ -309,12 +284,9 @@ export const updateMemberRole: RequestHandler = async (req, res) => {
          return;
     }
 
-    // Map descriptive role to permission role
     const permissionRole = (role || '').toLowerCase().includes('qa') ? 'qa' : 'member';
     
-    // Protection: If changing a QA user to something else, ensure another QA exists
     if (userToUpdate.role === 'qa' && permissionRole !== 'qa') {
-         // Find all projects where this user is a team member
          const project = await Project.findOne({ team: userId });
          if (project) {
             const otherQAs = await User.countDocuments({ 
@@ -332,7 +304,7 @@ export const updateMemberRole: RequestHandler = async (req, res) => {
       userId,
       { 
         role: permissionRole,
-        title: role // Use descriptive role as title
+        title: role 
       },
       { new: true }
     );
@@ -348,14 +320,12 @@ export const updateMemberRole: RequestHandler = async (req, res) => {
   }
 };
 
-// Cancel/Revoke invitation
 export const cancelInvite: RequestHandler = async (req, res) => {
   try {
     const { inviteId } = req.params;
     
     const inviteToCheck = await TeamInvite.findById(inviteId);
     if (inviteToCheck?.role === 'qa') {
-      // Check if there are other QAs (active in project or pending invites)
       const projectData = await Project.findById(inviteToCheck.projectId);
       const activeQAs = await User.countDocuments({ 
         _id: { $in: projectData?.team || [] }, 

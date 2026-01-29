@@ -16,7 +16,6 @@ exports.assignInitialTasksToMember = void 0;
 const schemas_1 = require("../models/schemas");
 const mongoose_1 = __importDefault(require("mongoose"));
 const geminiService_1 = require("./geminiService");
-// Standard role keywords for fallback matching
 const ROLE_KEYWORDS = {
     'frontend': ['frontend', 'ui', 'react', 'vue', 'angular', 'css', 'html', 'tailwind', 'client', 'design', 'style', 'component', 'interface'],
     'backend': ['backend', 'api', 'server', 'database', 'node', 'express', 'mongo', 'sql', 'auth', 'endpoint', 'middleware', 'data', 'schema'],
@@ -42,7 +41,6 @@ const assignInitialTasksToMember = (user, projectId) => __awaiter(void 0, void 0
         console.log(`[AutoAssign] Querying Project ID: ${projectId}, Owner ID: ${projectOwnerId}`);
         const totalTasks = yield schemas_1.Task.countDocuments({ projectId: new mongoose_1.default.Types.ObjectId(projectId) });
         console.log(`[AutoAssign] Project has ${totalTasks} total tasks.`);
-        // 1. Find Unassigned Tasks (OR tasks assigned to Owner which are effectively "backlog")
         const unassignedQuery = {
             projectId: new mongoose_1.default.Types.ObjectId(projectId),
             $or: [
@@ -64,7 +62,6 @@ const assignInitialTasksToMember = (user, projectId) => __awaiter(void 0, void 0
         if (unassignedTasks.length === 0) {
             return { assignedTasks: [], message: 'No unassigned tasks available.' };
         }
-        // 2. AI Semantic Matching
         let aiMatchedIds = [];
         try {
             aiMatchedIds = yield (0, geminiService_1.matchTasksToRole)({ role: user.role, title: user.title || user.role }, unassignedTasks);
@@ -72,9 +69,7 @@ const assignInitialTasksToMember = (user, projectId) => __awaiter(void 0, void 0
         }
         catch (error) {
             console.error('[AutoAssign] AI matching error:', error);
-            // Continue to keyword matching
         }
-        // Apply AI matches
         for (const taskId of aiMatchedIds) {
             if (assignedTasks.length >= maxAssignments)
                 break;
@@ -84,13 +79,11 @@ const assignInitialTasksToMember = (user, projectId) => __awaiter(void 0, void 0
                 assignedTasks.push(task);
             }
         }
-        // 3. Keyword Matching (Fallback)
         if (assignedTasks.length < maxAssignments) {
             console.log('[AutoAssign] Attempting keyword matching...');
             const userRoleLower = (user.role || '').toLowerCase();
             const userTitleLower = (user.title || '').toLowerCase();
             const combinedContext = `${userRoleLower} ${userTitleLower}`;
-            // Determine best matching category
             let roleCategory = '';
             for (const [category, keywords] of Object.entries(ROLE_KEYWORDS)) {
                 if (keywords.some(k => combinedContext.includes(k))) {
@@ -104,7 +97,6 @@ const assignInitialTasksToMember = (user, projectId) => __awaiter(void 0, void 0
                 for (const task of unassignedTasks) {
                     if (assignedTasks.length >= maxAssignments)
                         break;
-                    // Skip if already assigned in this flow
                     if (assignedTasks.some(at => at._id.toString() === task._id.toString()))
                         continue;
                     const title = (task.title || '').toLowerCase();

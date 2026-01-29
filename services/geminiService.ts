@@ -2,10 +2,8 @@ import { GoogleGenAI } from '@google/genai';
 import fs from 'fs';
 import * as dotenv from 'dotenv';
 
-// Load environment variables immediately
 dotenv.config();
 
-// API Key Rotation - Support up to 5 keys
 const API_KEYS = [
   process.env.GEMINI_API_KEY,
   process.env.GEMINI_API_KEY_2,
@@ -59,8 +57,6 @@ async function callGeminiWithRetry(prompt: string, imageData: { data: string; mi
       const responseText = response.text || '';
       return responseText;
     } catch (error: any) {
-      // Aggressively rotate for almost any error except maybe malformed request if detectable
-      // But usually, with these simple prompts, errors are quota or transient API issues.
       rotateAPIKey();
       if (attempt < MAX_RETRIES - 1) {
         console.log(`Retrying with next API key (attempt ${attempt + 2}/${MAX_RETRIES})...`);
@@ -72,9 +68,6 @@ async function callGeminiWithRetry(prompt: string, imageData: { data: string; mi
   throw new Error('All API keys exhausted');
 }
 
-/**
- * Extract project details from an uploaded image
- */
 export async function extractProjectFromImage(imagePath: string) {
   try {
     const imageData = fs.readFileSync(imagePath);
@@ -82,8 +75,7 @@ export async function extractProjectFromImage(imagePath: string) {
     const ext = imagePath.split('.').pop()?.toLowerCase();
     const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
 
-    // Get current date for context
-    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const currentDate = new Date().toISOString().split('T')[0];
 
     const prompt = `You are an AI assistant helping to extract project information from images. 
     
@@ -130,9 +122,6 @@ export async function extractProjectFromImage(imagePath: string) {
   }
 }
 
-/**
- * Generate AI-powered team assembly recommendations
- */
 export async function generateTeamAssembly(projectData: {
   name: string;
   description: string;
@@ -140,8 +129,7 @@ export async function generateTeamAssembly(projectData: {
   extractedText?: string;
 }) {
   try {
-    // Get current date for context
-    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const currentDate = new Date().toISOString().split('T')[0];
     const currentYear = new Date().getFullYear();
 
     const prompt = `Based on this project information, recommend an ideal team structure:
@@ -186,9 +174,6 @@ export async function generateTeamAssembly(projectData: {
   }
 }
 
-/**
- * Auto-generate tasks based on project and milestones
- */
 export async function generateInitialTasks(projectData: {
   name: string;
   description: string;
@@ -341,9 +326,6 @@ export async function generateTaskRecommendations(projectData: any) {
   }
 }
 
-/**
- * Match unassigned tasks to a user's role and title using AI
- */
 export async function matchTasksToRole(userData: { role: string; title: string }, tasks: any[]) {
   try {
     if (!tasks || tasks.length === 0) return [];

@@ -2,7 +2,6 @@ import { Task, Project } from '../models/schemas';
 import mongoose from 'mongoose';
 import { matchTasksToRole } from './geminiService';
 
-// Standard role keywords for fallback matching
 const ROLE_KEYWORDS: Record<string, string[]> = {
     'frontend': ['frontend', 'ui', 'react', 'vue', 'angular', 'css', 'html', 'tailwind', 'client', 'design', 'style', 'component', 'interface'],
     'backend': ['backend', 'api', 'server', 'database', 'node', 'express', 'mongo', 'sql', 'auth', 'endpoint', 'middleware', 'data', 'schema'],
@@ -36,7 +35,6 @@ export const assignInitialTasksToMember = async (
         const totalTasks = await Task.countDocuments({ projectId: new mongoose.Types.ObjectId(projectId) });
         console.log(`[AutoAssign] Project has ${totalTasks} total tasks.`);
 
-        // 1. Find Unassigned Tasks (OR tasks assigned to Owner which are effectively "backlog")
         const unassignedQuery: any = {
             projectId: new mongoose.Types.ObjectId(projectId),
             $or: [
@@ -62,7 +60,6 @@ export const assignInitialTasksToMember = async (
             return { assignedTasks: [], message: 'No unassigned tasks available.' };
         }
 
-        // 2. AI Semantic Matching
         let aiMatchedIds: string[] = [];
         try {
             aiMatchedIds = await matchTasksToRole(
@@ -72,10 +69,8 @@ export const assignInitialTasksToMember = async (
             console.log(`[AutoAssign] AI returned ${aiMatchedIds.length} matches.`);
         } catch (error) {
             console.error('[AutoAssign] AI matching error:', error);
-            // Continue to keyword matching
         }
 
-        // Apply AI matches
         for (const taskId of aiMatchedIds) {
             if (assignedTasks.length >= maxAssignments) break;
             
@@ -86,14 +81,12 @@ export const assignInitialTasksToMember = async (
             }
         }
 
-        // 3. Keyword Matching (Fallback)
         if (assignedTasks.length < maxAssignments) {
             console.log('[AutoAssign] Attempting keyword matching...');
             const userRoleLower = (user.role || '').toLowerCase();
             const userTitleLower = (user.title || '').toLowerCase();
             const combinedContext = `${userRoleLower} ${userTitleLower}`;
 
-            // Determine best matching category
             let roleCategory = '';
             for (const [category, keywords] of Object.entries(ROLE_KEYWORDS)) {
                 if (keywords.some(k => combinedContext.includes(k))) {
@@ -109,7 +102,6 @@ export const assignInitialTasksToMember = async (
                 for (const task of unassignedTasks) {
                     if (assignedTasks.length >= maxAssignments) break;
                     
-                    // Skip if already assigned in this flow
                     if (assignedTasks.some(at => at._id.toString() === task._id.toString())) continue;
 
                     const title = (task.title || '').toLowerCase();

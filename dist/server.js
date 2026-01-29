@@ -13,16 +13,13 @@ const http_1 = require("http");
 const socket_io_1 = require("socket.io");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
-// Create HTTP server for Socket.IO
 const httpServer = (0, http_1.createServer)(app);
-// Health Check (Top Level to avoid middleware interference)
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
-// Static Files
 app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'uploads')));
-// Middleware
 const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:3001',
@@ -31,7 +28,6 @@ const allowedOrigins = [
     'https://octo-ops-backend.onrender.com',
     'https://octoops-backend.onrender.com'
 ];
-// Diagnostic Logging for CORS
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     console.log(`Incoming request from origin: ${origin} | Method: ${req.method} | Path: ${req.path}`);
@@ -39,7 +35,6 @@ app.use((req, res, next) => {
 });
 app.use((0, cors_1.default)({
     origin: (origin, callback) => {
-        // If no origin (like mobile apps or curl) or origin is in allowed list
         if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app')) {
             callback(null, origin || true);
         }
@@ -54,7 +49,6 @@ app.use((0, cors_1.default)({
     optionsSuccessStatus: 200
 }));
 app.use(express_1.default.json());
-// Socket.IO Setup
 const io = new socket_io_1.Server(httpServer, {
     cors: {
         origin: (origin, callback) => {
@@ -70,15 +64,12 @@ const io = new socket_io_1.Server(httpServer, {
     }
 });
 exports.io = io;
-// Socket.IO connection handling
 io.on('connection', (socket) => {
     console.log('✅ Client connected:', socket.id);
-    // Join project room
     socket.on('join-project', (projectId) => {
         socket.join(`project:${projectId}`);
         console.log(`Socket ${socket.id} joined project:${projectId}`);
     });
-    // Leave project room
     socket.on('leave-project', (projectId) => {
         socket.leave(`project:${projectId}`);
         console.log(`Socket ${socket.id} left project:${projectId}`);
@@ -87,7 +78,6 @@ io.on('connection', (socket) => {
         console.log('❌ Client disconnected:', socket.id);
     });
 });
-// Diagnostic Logging for CORS (moved after options)
 app.use((req, res, next) => {
     if (req.method !== 'OPTIONS') {
         const origin = req.headers.origin;
@@ -95,9 +85,7 @@ app.use((req, res, next) => {
     }
     next();
 });
-// Database Connection
 const MONGODB_URL = process.env.MONGODB_URI || '';
-// NOTE: Ensure you have a running MongoDB instance or valid URI in .env
 mongoose_1.default.set('bufferCommands', false);
 mongoose_1.default.connect(MONGODB_URL, {
     serverSelectionTimeoutMS: 5000,
@@ -106,15 +94,12 @@ mongoose_1.default.connect(MONGODB_URL, {
     .then(() => console.log('✅ MongoDB Connected'))
     .catch((err) => {
     console.error('❌ MongoDB Connection Error:', err);
-    // Log more details for debugging buffering issues
     if (err.name === 'MongooseServerSelectionError') {
         console.error('Check if database IP is whitelisted and MONGODB_URI is correct.');
     }
 });
-// Routes
 const routes_1 = __importDefault(require("./routes"));
 app.use('/api', routes_1.default);
-// Global Error Handler
 app.use((err, req, res, next) => {
     console.error('Unhandled Error:', err);
     res.status(500).json({

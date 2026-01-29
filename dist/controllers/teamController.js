@@ -21,7 +21,6 @@ const taskAssignmentService_1 = require("../services/taskAssignmentService");
 if (process.env.SENDGRID_API_KEY) {
     mail_1.default.setApiKey(process.env.SENDGRID_API_KEY);
 }
-// Get all team members for a project
 const getTeamMembers = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { projectId } = req.query;
@@ -34,7 +33,6 @@ const getTeamMembers = (req, res) => __awaiter(void 0, void 0, void 0, function*
             res.status(404).json({ error: 'Project not found' });
             return;
         }
-        // Get pending invites
         const pendingInvites = yield schemas_1.TeamInvite.find({
             projectId,
             status: 'pending'
@@ -49,29 +47,23 @@ const getTeamMembers = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.getTeamMembers = getTeamMembers;
-// Invite a team member
 const inviteTeamMember = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { email, role, projectId, invitedBy, name } = req.body;
-        // Check if user already exists
         let user = yield schemas_1.User.findOne({ email });
         if (user) {
-            // Check if already in project
             const project = yield schemas_1.Project.findById(projectId);
             if (project === null || project === void 0 ? void 0 : project.team.includes(user._id.toString())) {
                 res.status(400).json({ error: 'User is already a team member' });
                 return;
             }
         }
-        // Generate unique invite code
         const inviteCode = crypto_1.default.randomBytes(16).toString('hex');
-        // Map specific role to internal permission role + descriptive title
         const permissionRole = role.toLowerCase().includes('qa') || role.toLowerCase().includes('reviewer') ? 'qa' : 'member';
         const jobTitle = role;
-        // Create invite
         const invite = yield schemas_1.TeamInvite.create({
             email,
-            name, // Save the full name
+            name,
             role: permissionRole,
             title: jobTitle,
             projectId,
@@ -81,10 +73,10 @@ const inviteTeamMember = (req, res) => __awaiter(void 0, void 0, void 0, functio
         });
         const populatedInvite = yield schemas_1.TeamInvite.findById(invite._id)
             .populate('invitedBy', 'name email');
-        // Send Email via SendGrid (optional - don't fail invite if email fails)
         if (process.env.SENDGRID_API_KEY) {
             try {
-                const inviteLink = `http://localhost:3000/login?mode=member&code=${inviteCode}` || `https://octo-ops.vercel.app/login?mode=member&code=${inviteCode}`;
+                const FRONTEND_URL = process.env.FRONTEND_URL || 'https://octo-ops.vercel.app';
+                const inviteLink = `${FRONTEND_URL}/login?mode=member&code=${inviteCode}`;
                 const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@octoops.ai';
                 const msg = {
                     to: email,
@@ -105,7 +97,6 @@ const inviteTeamMember = (req, res) => __awaiter(void 0, void 0, void 0, functio
             }
             catch (emailError) {
                 console.warn(`⚠ Email send failed (invite still created): ${emailError.message}`);
-                // Don't throw - invite was created successfully, email is optional
             }
         }
         else {
@@ -119,7 +110,6 @@ const inviteTeamMember = (req, res) => __awaiter(void 0, void 0, void 0, functio
     }
 });
 exports.inviteTeamMember = inviteTeamMember;
-// Accept team invitation
 const acceptInvite = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
@@ -128,17 +118,14 @@ const acceptInvite = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         let user = null;
         if (inviteCode === 'RE-SYNC') {
             console.log(`[ReSync] Manual trigger received for: ${userName}`);
-            // In RE-SYNC mode, userName contains the email
             user = yield schemas_1.User.findOne({ email: userName });
             if (!user) {
                 return res.status(404).json({ error: 'User not found for re-sync' });
             }
-            // Find the project this user belongs to
             const project = yield schemas_1.Project.findOne({ team: user._id });
             if (!project) {
                 return res.status(404).json({ error: 'Project context not found for re-sync' });
             }
-            // Create a mock invite object for the logic below to reuse
             invite = {
                 projectId: project._id,
                 role: user.role,
@@ -153,14 +140,12 @@ const acceptInvite = (req, res) => __awaiter(void 0, void 0, void 0, function* (
                 res.status(404).json({ error: 'Invalid or expired invite code' });
                 return;
             }
-            // Check if expired
             if (invite.expiresAt && invite.expiresAt < new Date()) {
                 invite.status = 'expired';
                 yield invite.save();
                 res.status(400).json({ error: 'Invite code has expired' });
                 return;
             }
-            // Create or update user
             user = yield schemas_1.User.findOne({ email: invite.email });
             if (!user) {
                 user = yield schemas_1.User.create({
@@ -175,23 +160,19 @@ const acceptInvite = (req, res) => __awaiter(void 0, void 0, void 0, function* (
                     avatar: invite.role === 'qa' ? '👩‍🎨' : '👨‍💻'
                 });
             }
-            // Add user to project team
             yield schemas_1.Project.findByIdAndUpdate(invite.projectId, {
                 $addToSet: { team: user._id }
             });
-            // Update invite status
             invite.status = 'accepted';
             invite.acceptedAt = new Date();
             yield invite.save();
         }
-        // Auto-assign tasks using allocated service
         let assignedTasks = [];
         let projectTeamCount = 0;
         try {
             const project = yield schemas_1.Project.findById(invite.projectId);
             if (project) {
                 projectTeamCount = project.team.length;
-                // Import dynamically or ensure it's imported at top, but for now assuming top import
                 console.log(`[acceptInvite] Calling assignInitialTasksToMember for ${user.email}`);
                 const result = yield (0, taskAssignmentService_1.assignInitialTasksToMember)({
                     _id: user._id,
@@ -202,7 +183,6 @@ const acceptInvite = (req, res) => __awaiter(void 0, void 0, void 0, function* (
                 }, invite.projectId);
                 console.log(`[acceptInvite] Assignment result: ${(_a = result.assignedTasks) === null || _a === void 0 ? void 0 : _a.length} tasks assigned.`);
                 assignedTasks = result.assignedTasks;
-                // Socket updates
                 server_1.io.to(`project:${invite.projectId}`).emit('team-updated', {
                     projectId: invite.projectId,
                     newMember: user,
@@ -232,7 +212,6 @@ const acceptInvite = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.acceptInvite = acceptInvite;
-// Remove team member
 const removeTeamMember = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { userId, projectId } = req.body;
@@ -242,7 +221,6 @@ const removeTeamMember = (req, res) => __awaiter(void 0, void 0, void 0, functio
             return;
         }
         if ((userToRemove === null || userToRemove === void 0 ? void 0 : userToRemove.role) === 'qa') {
-            // Check if there are other QAs in the project
             const projectData = yield schemas_1.Project.findById(projectId);
             const otherQAs = yield schemas_1.User.countDocuments({
                 _id: { $in: (projectData === null || projectData === void 0 ? void 0 : projectData.team) || [], $ne: userId },
@@ -253,7 +231,6 @@ const removeTeamMember = (req, res) => __awaiter(void 0, void 0, void 0, functio
                 return;
             }
         }
-        // Remove user record to revoke login access
         yield schemas_1.User.findByIdAndDelete(userId);
         const project = yield schemas_1.Project.findByIdAndUpdate(projectId, { $pull: { team: userId } }, { new: true }).populate('team');
         if (!project) {
@@ -267,11 +244,9 @@ const removeTeamMember = (req, res) => __awaiter(void 0, void 0, void 0, functio
     }
 });
 exports.removeTeamMember = removeTeamMember;
-// Update member role
 const updateMemberRole = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { userId, role } = req.body;
-        // Protection: Owner role is permanent
         const userToUpdate = yield schemas_1.User.findById(userId);
         if (!userToUpdate) {
             res.status(404).json({ error: 'User not found' });
@@ -281,11 +256,8 @@ const updateMemberRole = (req, res) => __awaiter(void 0, void 0, void 0, functio
             res.status(403).json({ error: 'The Project Owner role cannot be changed.' });
             return;
         }
-        // Map descriptive role to permission role
         const permissionRole = (role || '').toLowerCase().includes('qa') ? 'qa' : 'member';
-        // Protection: If changing a QA user to something else, ensure another QA exists
         if (userToUpdate.role === 'qa' && permissionRole !== 'qa') {
-            // Find all projects where this user is a team member
             const project = yield schemas_1.Project.findOne({ team: userId });
             if (project) {
                 const otherQAs = yield schemas_1.User.countDocuments({
@@ -300,7 +272,7 @@ const updateMemberRole = (req, res) => __awaiter(void 0, void 0, void 0, functio
         }
         const user = yield schemas_1.User.findByIdAndUpdate(userId, {
             role: permissionRole,
-            title: role // Use descriptive role as title
+            title: role
         }, { new: true });
         if (!user) {
             res.status(404).json({ error: 'User not found' });
@@ -313,13 +285,11 @@ const updateMemberRole = (req, res) => __awaiter(void 0, void 0, void 0, functio
     }
 });
 exports.updateMemberRole = updateMemberRole;
-// Cancel/Revoke invitation
 const cancelInvite = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { inviteId } = req.params;
         const inviteToCheck = yield schemas_1.TeamInvite.findById(inviteId);
         if ((inviteToCheck === null || inviteToCheck === void 0 ? void 0 : inviteToCheck.role) === 'qa') {
-            // Check if there are other QAs (active in project or pending invites)
             const projectData = yield schemas_1.Project.findById(inviteToCheck.projectId);
             const activeQAs = yield schemas_1.User.countDocuments({
                 _id: { $in: (projectData === null || projectData === void 0 ? void 0 : projectData.team) || [] },

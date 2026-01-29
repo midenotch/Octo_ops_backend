@@ -55,9 +55,7 @@ exports.matchTasksToRole = matchTasksToRole;
 const genai_1 = require("@google/genai");
 const fs_1 = __importDefault(require("fs"));
 const dotenv = __importStar(require("dotenv"));
-// Load environment variables immediately
 dotenv.config();
-// API Key Rotation - Support up to 5 keys
 const API_KEYS = [
     process.env.GEMINI_API_KEY,
     process.env.GEMINI_API_KEY_2,
@@ -104,8 +102,6 @@ function callGeminiWithRetry(prompt_1) {
                 return responseText;
             }
             catch (error) {
-                // Aggressively rotate for almost any error except maybe malformed request if detectable
-                // But usually, with these simple prompts, errors are quota or transient API issues.
                 rotateAPIKey();
                 if (attempt < MAX_RETRIES - 1) {
                     console.log(`Retrying with next API key (attempt ${attempt + 2}/${MAX_RETRIES})...`);
@@ -117,9 +113,6 @@ function callGeminiWithRetry(prompt_1) {
         throw new Error('All API keys exhausted');
     });
 }
-/**
- * Extract project details from an uploaded image
- */
 function extractProjectFromImage(imagePath) {
     return __awaiter(this, void 0, void 0, function* () {
         var _a;
@@ -128,8 +121,7 @@ function extractProjectFromImage(imagePath) {
             const base64Image = imageData.toString('base64');
             const ext = (_a = imagePath.split('.').pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase();
             const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-            // Get current date for context
-            const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+            const currentDate = new Date().toISOString().split('T')[0];
             const prompt = `You are an AI assistant helping to extract project information from images. 
     
     IMPORTANT: Today's date is ${currentDate}. When extracting or suggesting deadlines, ensure all dates are in the year 2026 or later. Use today's date as the reference point for any timeline calculations.
@@ -174,15 +166,11 @@ function extractProjectFromImage(imagePath) {
         }
     });
 }
-/**
- * Generate AI-powered team assembly recommendations
- */
 function generateTeamAssembly(projectData) {
     return __awaiter(this, void 0, void 0, function* () {
         var _a;
         try {
-            // Get current date for context
-            const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+            const currentDate = new Date().toISOString().split('T')[0];
             const currentYear = new Date().getFullYear();
             const prompt = `Based on this project information, recommend an ideal team structure:
     
@@ -225,9 +213,6 @@ function generateTeamAssembly(projectData) {
         }
     });
 }
-/**
- * Auto-generate tasks based on project and milestones
- */
 function generateInitialTasks(projectData) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
@@ -375,9 +360,6 @@ function generateTaskRecommendations(projectData) {
         }
     });
 }
-/**
- * Match unassigned tasks to a user's role and title using AI
- */
 function matchTasksToRole(userData, tasks) {
     return __awaiter(this, void 0, void 0, function* () {
         try {

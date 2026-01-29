@@ -11,11 +11,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.uploadFile = void 0;
 const uploadFile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
-        const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+        const protocol = ((_a = req.get('host')) === null || _a === void 0 ? void 0 : _a.includes('localhost')) ? 'http' : 'https';
+        const fileUrl = `${protocol}://${req.get('host')}/uploads/${req.file.filename}`;
         res.status(200).json({
             url: fileUrl,
             filename: req.file.filename,
